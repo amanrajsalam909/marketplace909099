@@ -95,6 +95,13 @@
 
     /* Order cards */
     .orders { display: grid; gap: 14px; }
+    .status-head {
+      display: flex; align-items: center; gap: 10px;
+      margin-top: 10px; padding-bottom: 2px;
+      border-bottom: 2px solid var(--border);
+    }
+    .status-head:first-child { margin-top: 0; }
+    .status-head .count { font-size: 12px; color: var(--muted); font-weight: 600; padding-bottom: 4px; }
     .order-card {
       background: var(--card); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow);
@@ -430,16 +437,43 @@
       }
     }
 
+    const STATUS_ORDER = ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'];
+
     function renderOrders() {
-      const list = statusFilter ? allOrders.filter(o => o.status === statusFilter) : allOrders;
       const el = document.getElementById('ordersList');
 
+      // Live counts on the filter chips
+      document.querySelectorAll('#chips .chip').forEach(c => {
+        const s = c.dataset.status;
+        const n = s ? allOrders.filter(o => o.status === s).length : allOrders.length;
+        c.textContent = (s ? STATUS_LABELS[s] : 'All') + (n ? ' (' + n + ')' : '');
+      });
+
+      const list = statusFilter ? allOrders.filter(o => o.status === statusFilter) : allOrders;
       if (!list.length) {
         el.innerHTML = '<div class="state">No ' + (statusFilter ? STATUS_LABELS[statusFilter].toLowerCase() + ' ' : '') + 'orders yet.</div>';
         return;
       }
 
-      el.innerHTML = list.map(o => {
+      if (statusFilter) {
+        el.innerHTML = list.map(orderCardHtml).join('');
+        return;
+      }
+
+      // "All" view: one section per status, workflow order (pending first)
+      el.innerHTML = STATUS_ORDER.map(s => {
+        const grp = allOrders.filter(o => o.status === s);
+        if (!grp.length) return '';
+        return `
+          <div class="status-head">
+            <span class="pill ${s}">${STATUS_LABELS[s]}</span>
+            <span class="count">${grp.length} order${grp.length > 1 ? 's' : ''} · ${inr(grp.reduce((x, o) => x + Number(o.total), 0))}</span>
+          </div>
+          ${grp.map(orderCardHtml).join('')}`;
+      }).join('');
+    }
+
+    function orderCardHtml(o) {
         const items = o.items || [];
         const when = o.created_at ? new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '';
         return `
@@ -477,7 +511,6 @@
               </div>
             </div>
           </div>`;
-      }).join('');
     }
 
     document.getElementById('ordersList').addEventListener('click', async e => {
@@ -529,7 +562,7 @@
     document.getElementById('chips').addEventListener('click', e => {
       const chip = e.target.closest('.chip');
       if (!chip) return;
-      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      document.querySelectorAll('#chips .chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       statusFilter = chip.dataset.status;
       renderOrders();
