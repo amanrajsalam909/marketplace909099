@@ -186,15 +186,38 @@
     // Per-shop commerce settings (delivery fee, min order, COD/UPI) — display
     // only; the server pipeline independently enforces all of these.
     let shopMeta = {};
+    let allOffers = [];
     async function loadMeta() {
       try {
-        const res = await fetch('/api/marketplace?action=vendors');
-        (await res.json()).forEach(v => { shopMeta[v.id] = v; });
+        const [vRes, oRes] = await Promise.all([
+          fetch('/api/marketplace?action=vendors'),
+          fetch('/api/marketplace?action=offers')
+        ]);
+        (await vRes.json()).forEach(v => { shopMeta[v.id] = v; });
+        if (oRes.ok) allOffers = await oRes.json();
       } catch (_) {}
       render();
     }
     const feeFor = vid => Number(shopMeta[vid]?.delivery_fee ?? 30);
     const minFor = vid => Number(shopMeta[vid]?.min_order ?? 0);
+
+    // Mirrors the database's best-offer selection (largest discount wins) —
+    // display only; checkout recomputes and applies the real discount.
+    const round2 = n => Math.round(n * 100) / 100;
+    function bestOffer(vid, gSub) {
+      let best = null, bestD = 0;
+      for (const o of allOffers) {
+        if (o.vendor_id && o.vendor_id !== vid) continue;
+        if (Number(o.min_order) > gSub) continue;
+        let d = o.discount_type === 'percent'
+          ? round2(gSub * Number(o.discount_value) / 100)
+          : Number(o.discount_value);
+        if (o.max_discount && d > Number(o.max_discount)) d = Number(o.max_discount);
+        if (d > gSub) d = gSub;
+        if (d > bestD) { bestD = d; best = o; }
+      }
+      return best ? { name: best.name, amount: bestD } : null;
+    }
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const inr = n => '₹' + Number(n).toLocaleString('en-IN');
@@ -226,6 +249,12 @@
       const vendorCount = shopIds.length;
       const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
       const delivery = shopIds.reduce((s, vid) => s + feeFor(vid), 0);
+      const discount = round2(shopIds.reduce((s, vid) => {
+        const gSub = g[vid].items.reduce((x, i) => x + i.price * i.quantity, 0);
+        const off = bestOffer(vid, gSub);
+        return s + (off ? off.amount : 0);
+      }, 0));
+      const payable = round2(subtotal + delivery - discount);
 
       // UPI only offered for single-shop carts where the shop has a UPI ID
       const upiShop = vendorCount === 1 ? shopMeta[shopIds[0]] : null;
@@ -237,6 +266,7 @@
         const fee = feeFor(vid);
         const minO = minFor(vid);
         const short = minO > gSub ? minO - gSub : 0;
+        const off = bestOffer(vid, gSub);
         return `
           <div class="vendor-group">
             <div class="vendor-head">
@@ -262,7 +292,8 @@
               </div>
             `).join('')}
             ${short > 0 ? `<div style="background:#fef3c7;color:#92400e;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:600;margin:8px 0">Add ${inr(short)} more — this shop's minimum order is ${inr(minO)}.</div>` : ''}
-            <div class="group-total">Subtotal ${inr(gSub)} + ${inr(fee)} delivery = <b>${inr(gSub + fee)}</b></div>
+            ${off ? `<div style="background:#ecfdf5;color:#065f46;border:1px dashed #6ee7b7;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:600;margin:8px 0">🎉 ${esc(off.name)} — ${inr(off.amount)} off, auto-applied at checkout</div>` : ''}
+            <div class="group-total">Subtotal ${inr(gSub)} + ${inr(fee)} delivery${off ? ' − ' + inr(off.amount) + ' offer' : ''} = <b>${inr(round2(gSub + fee - (off ? off.amount : 0)))}</b></div>
           </div>`;
       }).join('');
 
@@ -301,7 +332,7 @@
                 </div>
                 ${!upiOk && vendorCount > 1 ? '<div style="font-size:11px;color:var(--muted);margin-top:6px">UPI is available when ordering from a single shop.</div>' : ''}
                 <div id="upiBox" style="display:none;margin-top:10px;background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px">
-                  <div style="font-size:13px;color:var(--dark)">Pay <b>${inr(subtotal + delivery)}</b> to UPI ID:</div>
+                  <div style="font-size:13px;color:var(--dark)">Pay <b>${inr(payable)}</b> to UPI ID:</div>
                   <div style="display:flex;align-items:center;gap:8px;margin:8px 0">
                     <code style="font-size:14px;font-weight:700;color:var(--dark)" id="upiIdText">${upiOk ? esc(upiShop.upi_id) : ''}</code>
                     <button type="button" id="copyUpi" style="border:1px solid var(--border);background:#fff;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit">Copy</button>
@@ -313,9 +344,10 @@
               <div class="totals">
                 <div class="trow"><span>Items subtotal</span><span>${inr(subtotal)}</span></div>
                 <div class="trow"><span>Delivery (${vendorCount} shop${vendorCount > 1 ? 's' : ''})</span><span>${inr(delivery)}</span></div>
-                <div class="trow grand"><span>Total</span><span>${inr(subtotal + delivery)}</span></div>
+                ${discount > 0 ? `<div class="trow" style="color:#047857;font-weight:600"><span>🎉 Offer discount</span><span>−${inr(discount)}</span></div>` : ''}
+                <div class="trow grand"><span>Total</span><span>${inr(payable)}</span></div>
               </div>
-              <button type="submit" class="place-btn" id="placeBtn">Place Order · ${inr(subtotal + delivery)}</button>
+              <button type="submit" class="place-btn" id="placeBtn">Place Order · ${inr(payable)}</button>
             </form>
           </div>
         </div>`;
@@ -435,17 +467,21 @@
 
     function renderSuccess(orders, phone) {
       const esc2 = esc;
+      const saved = round2(orders.reduce((s, o) => s + Number(o.discount || 0), 0));
       view.innerHTML = `
         <div class="state-card">
           <div class="icon">🎉</div>
           <h2>Order placed!</h2>
           <p>A confirmation has been sent to your email. Save your order ID${orders.length > 1 ? 's' : ''} to track delivery.</p>
+          ${saved > 0
+            ? `<p style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:10px 14px;font-size:13px;color:#065f46;font-weight:600">🎉 You saved ${inr(saved)} with offers!</p>`
+            : ''}
           ${orders.some(o => o.payment_status === 'Pending Verification')
             ? '<p style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;font-size:13px;color:#1e40af">📲 UPI payment: your order will be confirmed once the payment is verified.</p>'
             : ''}
           ${orders.map(o => `
             <div class="order-line">
-              <span><b>${esc2(o.order_id)}</b>${o.vendor_name ? '<br><span style="color:var(--muted);font-size:12px">' + esc2(o.vendor_name) + '</span>' : ''}</span>
+              <span><b>${esc2(o.order_id)}</b>${o.vendor_name ? '<br><span style="color:var(--muted);font-size:12px">' + esc2(o.vendor_name) + '</span>' : ''}${Number(o.discount) > 0 ? '<br><span style="color:#047857;font-size:12px;font-weight:600">' + esc2(o.offer_name || 'Offer') + ' · −' + inr(o.discount) + '</span>' : ''}</span>
               <span>${inr(o.total)}</span>
             </div>`).join('')}
           <p style="margin-top:8px">

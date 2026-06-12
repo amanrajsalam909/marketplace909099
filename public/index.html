@@ -241,6 +241,28 @@
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
+    .offer-tag {
+      display: inline-block;
+      margin-top: 8px;
+      background: #ecfdf5;
+      color: #047857;
+      border: 1px dashed #6ee7b7;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+
+    /* Shop-page offers strip */
+    .offers-strip {
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      margin: -6px 0 18px;
+    }
+    .offer-pill { font-size: 13px; color: #065f46; padding: 3px 0; }
+    .offers-note { font-size: 11px; color: #047857; margin-top: 6px; }
 
     /* Product cards */
     .products-grid {
@@ -431,6 +453,7 @@
     const state = {
       vendors: [],
       categories: [],
+      offers: [],
       categoryFilter: '',
       products: [],
       currentVendor: null,
@@ -455,6 +478,12 @@
     ];
     const bannerFor = name => BANNERS[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % BANNERS.length];
 
+    // Live offers for a shop (vendor-specific + marketplace-wide)
+    const offersFor = vid => state.offers.filter(o => !o.vendor_id || o.vendor_id === vid);
+    const offerTag = o => o.discount_type === 'percent'
+      ? Number(o.discount_value) + '% OFF' + (o.max_discount ? ' up to ' + inr(o.max_discount) : '')
+      : inr(o.discount_value) + ' OFF';
+
     function toast(msg) {
       const el = document.getElementById('toast');
       el.textContent = msg;
@@ -472,12 +501,14 @@
 
     async function loadMarketplace() {
       try {
-        const [vRes, cRes] = await Promise.all([
+        const [vRes, cRes, oRes] = await Promise.all([
           fetch('/api/marketplace?action=vendors'),
-          fetch('/api/marketplace?action=categories')
+          fetch('/api/marketplace?action=categories'),
+          fetch('/api/marketplace?action=offers')
         ]);
         state.vendors = await vRes.json();
         state.categories = cRes.ok ? await cRes.json() : [];
+        state.offers = oRes.ok ? await oRes.json() : [];
         renderCategoryChips();
         renderVendors();
       } catch (e) {
@@ -523,7 +554,9 @@
         return;
       }
 
-      content.innerHTML = '<div class="vendors-grid">' + list.map(v => `
+      content.innerHTML = '<div class="vendors-grid">' + list.map(v => {
+        const offer = offersFor(v.id)[0];
+        return `
         <div class="vendor-card" data-vendor="${v.id}">
           <div class="vendor-banner" style="background:${bannerFor(v.name)}">
             <div class="vendor-avatar">${v.logo_url ? `<img src="${esc(v.logo_url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:9px">` : esc(v.name[0])}</div>
@@ -532,9 +565,10 @@
             <div class="vendor-name">${esc(v.name)}</div>
             <div class="vendor-meta">${v.categories ? esc((v.categories.icon || '') + ' ' + v.categories.name) + ' · ' : ''}📍 ${esc(v.address || 'Rajkot')}${v.is_open === false ? ' · <span style="color:#dc2626;font-weight:700">Closed</span>' : ''}</div>
             <div class="vendor-desc">${esc(v.description || 'Quality products from a local Rajkot business.')}</div>
+            ${offer ? `<div class="offer-tag">🎉 ${esc(offerTag(offer))}</div>` : ''}
           </div>
-        </div>
-      `).join('') + '</div>';
+        </div>`;
+      }).join('') + '</div>';
     }
 
     async function openVendor(vendorId) {
@@ -569,6 +603,13 @@
         return;
       }
 
+      const offs = state.currentVendor ? offersFor(state.currentVendor.id) : [];
+      const offersHtml = offs.length ? `
+        <div class="offers-strip">
+          ${offs.map(o => `<div class="offer-pill">🎉 <b>${esc(offerTag(o))}</b>${Number(o.min_order) > 0 ? ' on orders above ' + inr(o.min_order) : ''}${o.description ? ' — ' + esc(o.description) : ''}</div>`).join('')}
+          <div class="offers-note">Best offer auto-applies at checkout — no code needed.</div>
+        </div>` : '';
+
       const r = state.shopRating || { count: 0 };
       const ratingHtml = r.count
         ? `<div style="margin:-8px 0 16px;font-size:13px;color:var(--muted)">
@@ -577,7 +618,7 @@
            </div>`
         : '';
 
-      content.innerHTML = ratingHtml + '<div class="products-grid">' + list.map(p => {
+      content.innerHTML = offersHtml + ratingHtml + '<div class="products-grid">' + list.map(p => {
         const out = typeof p.stock === 'number' && p.stock <= 0;
         const low = !out && typeof p.stock === 'number' && p.stock <= 5;
         return `

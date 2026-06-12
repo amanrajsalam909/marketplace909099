@@ -275,6 +275,30 @@
       <div id="accBody"><div class="state">Loading accounts…</div></div>
     </section>
 
+    <!-- OFFERS -->
+    <section class="panel" id="panel-offers">
+      <div class="card">
+        <h3>🎉 Create an offer</h3>
+        <p style="font-size:13px;color:var(--muted);margin:-6px 0 14px">The biggest valid offer auto-applies at checkout — no coupon codes. Commission is charged on the discounted items value, so the marketplace shares the discount cost with the shop.</p>
+        <form id="offerForm">
+          <div class="form-grid">
+            <div><label>Offer name *</label><input id="oName" type="text" maxlength="80" placeholder="e.g. Monsoon 10% OFF" required></div>
+            <div><label>Shop</label><select id="oVendor"><option value="">🌐 All shops</option></select></div>
+            <div><label>Type *</label><select id="oType"><option value="percent">Percent (%)</option><option value="flat">Flat (₹)</option></select></div>
+            <div><label>Discount value *</label><input id="oValue" type="number" min="1" step="0.5" required></div>
+            <div><label>Max discount ₹ (cap, optional)</label><input id="oCap" type="number" min="1" step="1"></div>
+            <div><label>Min order ₹</label><input id="oMin" type="number" min="0" step="1" value="0"></div>
+            <div><label>Valid from *</label><input id="oFrom" type="datetime-local" required></div>
+            <div><label>Valid until *</label><input id="oTo" type="datetime-local" required></div>
+            <div><label>Max uses (optional)</label><input id="oUses" type="number" min="1" step="1"></div>
+            <div class="full"><label>Description (shown to customers)</label><input id="oDesc" type="text" maxlength="200"></div>
+          </div>
+          <button type="submit" class="btn btn-primary" id="oSaveBtn" style="margin-top:14px">Create Offer</button>
+        </form>
+      </div>
+      <div id="offersList"><div class="state">Loading offers…</div></div>
+    </section>
+
     <!-- REVIEWS -->
     <section class="panel" id="panel-reviews">
       <div class="card">
@@ -739,6 +763,102 @@
       }
     }
 
+    /* ---------- Offers ---------- */
+    function offerLabel(o) {
+      const v = o.discount_type === 'percent'
+        ? Number(o.discount_value) + '% OFF' + (o.max_discount ? ' up to ' + inr(o.max_discount) : '')
+        : inr(o.discount_value) + ' OFF';
+      return v + (Number(o.min_order) > 0 ? ' · min order ' + inr(o.min_order) : '');
+    }
+
+    async function loadOffers() {
+      const sel = document.getElementById('oVendor');
+      sel.innerHTML = '<option value="">🌐 All shops</option>'
+        + vendors.map(v => `<option value="${v.id}" ${sel.value === v.id ? 'selected' : ''}>${esc(v.name)}</option>`).join('');
+      try {
+        const offers = await apiGet('offers');
+        const el = document.getElementById('offersList');
+        if (!offers.length) {
+          el.innerHTML = '<div class="state">No offers yet — create the first one above.</div>';
+          return;
+        }
+        const now = Date.now();
+        const dt = d => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+        el.innerHTML = offers.map(o => {
+          const expired = new Date(o.valid_to).getTime() < now;
+          const usedUp = o.max_uses !== null && o.uses_count >= o.max_uses;
+          const live = o.active && !expired && !usedUp;
+          return `
+          <div class="list-row">
+            <div class="row-icon">🎉</div>
+            <div class="row-info">
+              <div class="row-title">${esc(o.name)}</div>
+              <div class="row-sub">
+                ${o.vendor_id ? esc((o.vendors || {}).name || 'One shop') : '🌐 All shops'} ·
+                ${esc(offerLabel(o))} ·
+                ${dt(o.valid_from)} – ${dt(o.valid_to)} ·
+                used ${o.uses_count}${o.max_uses ? '/' + o.max_uses : ''} ·
+                by ${esc(o.created_by)}
+                ${expired ? ' · <b style="color:var(--red)">EXPIRED</b>' : usedUp ? ' · <b style="color:var(--amber)">USED UP</b>' : ''}
+              </div>
+            </div>
+            <span class="badge ${live ? 'on' : 'off'}">${live ? 'LIVE' : 'OFF'}</span>
+            <div class="row-actions">
+              <button class="btn btn-outline btn-sm" data-of-toggle="${o.id}" data-active="${o.active}">${o.active ? 'Pause' : 'Resume'}</button>
+              <button class="btn btn-outline btn-sm danger" data-of-delete="${o.id}">Delete</button>
+            </div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById('offersList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    document.getElementById('offerForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = document.getElementById('oSaveBtn');
+      btn.disabled = true;
+      try {
+        await apiPost({
+          action: 'create-offer',
+          offer: {
+            vendor_id: document.getElementById('oVendor').value || null,
+            name: document.getElementById('oName').value,
+            description: document.getElementById('oDesc').value,
+            discount_type: document.getElementById('oType').value,
+            discount_value: document.getElementById('oValue').value,
+            max_discount: document.getElementById('oCap').value || null,
+            min_order: document.getElementById('oMin').value,
+            max_uses: document.getElementById('oUses').value || null,
+            valid_from: document.getElementById('oFrom').value,
+            valid_to: document.getElementById('oTo').value
+          }
+        });
+        toast('Offer created');
+        e.target.reset();
+        document.getElementById('oMin').value = 0;
+        loadOffers();
+      } catch (err) { toast(err.message); }
+      finally { btn.disabled = false; }
+    });
+
+    document.getElementById('offersList').addEventListener('click', async e => {
+      const tgl = e.target.closest('[data-of-toggle]');
+      const del = e.target.closest('[data-of-delete]');
+      try {
+        if (tgl) {
+          await apiPost({ action: 'toggle-offer', offerId: tgl.dataset.ofToggle, active: tgl.dataset.active !== 'true' });
+          toast('Offer updated');
+          loadOffers();
+        } else if (del) {
+          if (!confirm('Delete this offer permanently? Past orders keep their discount.')) return;
+          await apiPost({ action: 'delete-offer', offerId: del.dataset.ofDelete });
+          toast('Offer deleted');
+          loadOffers();
+        }
+      } catch (err) { toast(err.message); }
+    });
+
     /* ---------- Reviews & Complaints ---------- */
     async function loadReviews() {
       try {
@@ -842,6 +962,7 @@
         if (tab.dataset.tab === 'orders') loadOrders();
         if (tab.dataset.tab === 'payments') loadPayments();
         if (tab.dataset.tab === 'accounting') loadAccounting();
+        if (tab.dataset.tab === 'offers') loadOffers();
         if (tab.dataset.tab === 'reviews') loadReviews();
         if (tab.dataset.tab === 'complaints') loadComplaints();
       });
