@@ -220,7 +220,77 @@
               ${items.map(i => `<div class="item-row"><span>${esc(i.name)} × ${i.quantity}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}
             </div>` : ''}
           ${order.delivery_address ? `<div class="addr">📍 Delivering to: ${esc(order.delivery_address)}</div>` : ''}
+        </div>
+        ${order.status === 'delivered' ? `
+        <div class="card" id="reviewCard">
+          <h3 style="font-size:15px;font-weight:700;color:var(--dark);margin-bottom:10px">⭐ Rate this order</h3>
+          <div id="stars" style="font-size:28px;cursor:pointer;letter-spacing:4px;margin-bottom:10px">${[1,2,3,4,5].map(i => `<span data-star="${i}" style="color:#cbd5e1">★</span>`).join('')}</div>
+          <textarea id="revComment" rows="2" placeholder="What did you like? (optional)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box"></textarea>
+          <button id="revBtn" class="track-btn" style="margin-top:10px">Submit Review</button>
+        </div>` : ''}
+        <div class="card">
+          <a href="#" id="compToggle" style="font-size:13px;font-weight:600;color:var(--muted);text-decoration:none">Problem with this order? File a complaint →</a>
+          <div id="compForm" style="display:none;margin-top:12px">
+            <input id="compSubject" type="text" placeholder="Subject (e.g. wrong item received)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box;margin-bottom:8px">
+            <textarea id="compDesc" rows="3" placeholder="Describe what went wrong…" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box"></textarea>
+            <button id="compBtn" class="track-btn" style="margin-top:8px">Submit Complaint</button>
+          </div>
         </div>`;
+
+      wireFeedback(order.order_id);
+    }
+
+    let chosenRating = 0;
+    function wireFeedback(orderId) {
+      const phoneVal = () => document.getElementById('phone').value.trim();
+
+      const stars = document.getElementById('stars');
+      if (stars) {
+        stars.addEventListener('click', e => {
+          const s = e.target.closest('[data-star]');
+          if (!s) return;
+          chosenRating = +s.dataset.star;
+          stars.querySelectorAll('span').forEach(el =>
+            el.style.color = +el.dataset.star <= chosenRating ? '#f59e0b' : '#cbd5e1');
+        });
+        document.getElementById('revBtn').addEventListener('click', async () => {
+          if (!chosenRating) return alert('Please tap a star rating first.');
+          const btn = document.getElementById('revBtn');
+          btn.disabled = true;
+          const res = await fetch('/api/feedback', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'submit-review', orderId, phone: phoneVal(), rating: chosenRating, comment: document.getElementById('revComment').value })
+          });
+          const d = await res.json();
+          if (d.success) {
+            document.getElementById('reviewCard').innerHTML = '<div style="text-align:center;color:#059669;font-weight:700;font-size:14px;padding:10px">Thank you! Your review is awaiting approval. ⭐</div>';
+          } else {
+            alert(d.error || 'Could not submit the review.');
+            btn.disabled = false;
+          }
+        });
+      }
+
+      document.getElementById('compToggle').addEventListener('click', e => {
+        e.preventDefault();
+        const f = document.getElementById('compForm');
+        f.style.display = f.style.display === 'none' ? 'block' : 'none';
+      });
+      document.getElementById('compBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('compBtn');
+        btn.disabled = true;
+        const res = await fetch('/api/feedback', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'submit-complaint', orderId, phone: phoneVal(), subject: document.getElementById('compSubject').value, description: document.getElementById('compDesc').value })
+        });
+        const d = await res.json();
+        if (d.success) {
+          document.getElementById('compForm').innerHTML = '<div style="color:#059669;font-weight:700;font-size:13px;padding:6px 0">Complaint filed — we will get back to you by email.</div>';
+        } else {
+          alert(d.error || 'Could not submit the complaint.');
+          btn.disabled = false;
+        }
+      });
     }
 
     // Pre-fill from URL (e.g. coming from the order-success screen)

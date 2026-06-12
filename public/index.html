@@ -385,6 +385,7 @@
       <div class="header-actions">
         <a class="btn btn-ghost" href="track.html">Track Order</a>
         <a class="btn btn-ghost" href="vendor-login.html">Sell with us</a>
+        <button class="btn btn-ghost" id="accountBtn">Sign In</button>
         <a class="btn btn-primary" href="cart.html">🛒 Cart <span class="cart-count" id="cartCount"></span></a>
       </div>
     </div>
@@ -414,6 +415,17 @@
   </footer>
 
   <div class="toast" id="toast"></div>
+
+  <!-- Sign-in / My Orders modal -->
+  <div id="modalBg" style="position:fixed;inset:0;background:rgba(15,23,42,0.5);display:none;align-items:center;justify-content:center;z-index:150;padding:20px">
+    <div style="background:#fff;border-radius:14px;padding:24px;width:100%;max-width:400px;max-height:85vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 id="modalTitle" style="font-size:17px;font-weight:800;color:var(--dark)">Sign In</h3>
+        <button onclick="closeModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#94a3b8">✕</button>
+      </div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
 
   <script>
     const state = {
@@ -536,8 +548,12 @@
       window.scrollTo({ top: document.querySelector('.container').offsetTop - 70, behavior: 'smooth' });
 
       try {
-        const res = await fetch('/api/marketplace?action=products&vendorId=' + encodeURIComponent(vendorId));
-        state.products = await res.json();
+        const [pRes, rRes] = await Promise.all([
+          fetch('/api/marketplace?action=products&vendorId=' + encodeURIComponent(vendorId)),
+          fetch('/api/feedback?reviews=1&vendorId=' + encodeURIComponent(vendorId))
+        ]);
+        state.products = await pRes.json();
+        state.shopRating = rRes.ok ? await rRes.json() : { count: 0 };
         renderProducts();
       } catch (e) {
         content.innerHTML = '<div class="state">Could not load the menu. Please try again.</div>';
@@ -553,7 +569,15 @@
         return;
       }
 
-      content.innerHTML = '<div class="products-grid">' + list.map(p => {
+      const r = state.shopRating || { count: 0 };
+      const ratingHtml = r.count
+        ? `<div style="margin:-8px 0 16px;font-size:13px;color:var(--muted)">
+             <span style="color:#f59e0b;font-weight:700">★ ${r.avg}</span> · ${r.count} review${r.count > 1 ? 's' : ''}
+             ${(r.reviews || []).slice(0, 2).map(rv => `<div style="margin-top:6px">"${esc(rv.comment || '')}" — ${esc(rv.customer_name)} (${'★'.repeat(rv.rating)})</div>`).join('')}
+           </div>`
+        : '';
+
+      content.innerHTML = ratingHtml + '<div class="products-grid">' + list.map(p => {
         const out = typeof p.stock === 'number' && p.stock <= 0;
         const low = !out && typeof p.stock === 'number' && p.stock <= 5;
         return `
@@ -613,6 +637,156 @@
       state.currentVendor ? renderProducts() : renderVendors();
     });
 
+    /* ---------- Customer account (email OTP) ---------- */
+    const FIELD = 'width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:10px;box-sizing:border-box';
+    const PBTN = 'width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer';
+    const ERRB = 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;padding:9px 12px;border-radius:8px;font-size:12px;margin-bottom:10px;display:none';
+
+    let cust = JSON.parse(localStorage.getItem('custSession') || 'null');
+
+    function refreshAccountBtn() {
+      document.getElementById('accountBtn').textContent =
+        cust ? '👤 ' + (cust.name || cust.phone) : 'Sign In';
+    }
+
+    function openModal(title, bodyHtml) {
+      document.getElementById('modalTitle').textContent = title;
+      document.getElementById('modalBody').innerHTML = bodyHtml;
+      document.getElementById('modalBg').style.display = 'flex';
+    }
+    function closeModal() { document.getElementById('modalBg').style.display = 'none'; }
+    document.getElementById('modalBg').addEventListener('click', e => {
+      if (e.target.id === 'modalBg') closeModal();
+    });
+    function mErr(msg) {
+      const el = document.getElementById('mErr');
+      if (el) { el.textContent = msg; el.style.display = 'block'; }
+    }
+
+    document.getElementById('accountBtn').addEventListener('click', () => {
+      cust ? showMyOrders() : showSignIn();
+    });
+
+    function showSignIn() {
+      openModal('Sign In', `
+        <div id="mErr" style="${ERRB}"></div>
+        <input id="siPhone" type="tel" inputmode="numeric" placeholder="10-digit mobile number" style="${FIELD}">
+        <input id="siEmail" type="email" placeholder="Email (we'll send your code here)" style="${FIELD}">
+        <button id="siSend" style="${PBTN}">Send Code</button>
+        <p style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center">A 6-digit code will be emailed to you. No password needed.</p>`);
+      document.getElementById('siSend').addEventListener('click', sendOtp);
+    }
+
+    async function sendOtp() {
+      const phone = document.getElementById('siPhone').value.trim();
+      const email = document.getElementById('siEmail').value.trim();
+      const btn = document.getElementById('siSend');
+      btn.disabled = true; btn.textContent = 'Sending…';
+      try {
+        const res = await fetch('/api/customer-auth', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send-otp', phone, email })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Could not send the code.');
+        showOtpStep(phone, email);
+      } catch (e) {
+        mErr(e.message);
+        btn.disabled = false; btn.textContent = 'Send Code';
+      }
+    }
+
+    function showOtpStep(phone, email) {
+      openModal('Enter Code', `
+        <div id="mErr" style="${ERRB}"></div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:12px">We emailed a 6-digit code to <b>${esc(email)}</b> (check Spam too).</p>
+        <input id="siOtp" type="text" inputmode="numeric" maxlength="6" placeholder="6-digit code" style="${FIELD};text-align:center;font-size:20px;letter-spacing:6px">
+        <button id="siVerify" style="${PBTN}">Verify & Sign In</button>
+        <p style="text-align:center;margin-top:12px"><a href="#" id="siBack" style="font-size:12px;color:var(--muted)">← Change details</a></p>`);
+      document.getElementById('siVerify').addEventListener('click', () => verifyOtp(phone, email));
+      document.getElementById('siOtp').focus();
+      document.getElementById('siBack').addEventListener('click', e => { e.preventDefault(); showSignIn(); });
+    }
+
+    async function verifyOtp(phone, email) {
+      const otp = document.getElementById('siOtp').value.trim();
+      const btn = document.getElementById('siVerify');
+      btn.disabled = true; btn.textContent = 'Verifying…';
+      try {
+        const res = await fetch('/api/customer-auth', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'verify-otp', phone, email, otp })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Verification failed.');
+        cust = { token: data.token, phone: data.phone, email: data.email, name: data.name };
+        localStorage.setItem('custSession', JSON.stringify(cust));
+        refreshAccountBtn();
+        closeModal();
+        toast('Signed in!');
+      } catch (e) {
+        mErr(e.message);
+        btn.disabled = false; btn.textContent = 'Verify & Sign In';
+      }
+    }
+
+    async function showMyOrders() {
+      openModal('My Orders', '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">Loading…</div>');
+      try {
+        const res = await fetch('/api/orders?myOrders=1&token=' + encodeURIComponent(cust.token));
+        if (res.status === 401) { signOut(); showSignIn(); return; }
+        const orders = await res.json();
+
+        const PILL = { pending: '#fef3c7;color:#92400e', confirmed: '#dbeafe;color:#1e40af', preparing: '#ffedd5;color:#9a3412', ready: '#e0e7ff;color:#3730a3', delivered: '#d1fae5;color:#065f46', cancelled: '#fee2e2;color:#991b1b' };
+        const rows = orders.length ? orders.map(o => {
+          const canCancel = o.status === 'pending' && (Date.now() - new Date(o.created_at).getTime() < 10 * 60 * 1000);
+          return `
+          <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+              <b style="font-size:13px;color:var(--dark)">${esc(o.order_id)}</b>
+              <span style="background:${PILL[o.status] || '#eef2f7;color:#475569'};padding:3px 10px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase">${esc(o.status)}</span>
+            </div>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px;display:flex;justify-content:space-between">
+              <span>${new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+              <b style="color:var(--dark)">${inr(o.total)}</b>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px">
+              <a href="track.html?orderId=${encodeURIComponent(o.order_id)}&phone=${encodeURIComponent(cust.phone)}" style="font-size:12px;color:var(--primary);font-weight:600;text-decoration:none">Track</a>
+              ${canCancel ? `<a href="#" data-mycancel="${esc(o.order_id)}" style="font-size:12px;color:#dc2626;font-weight:600;text-decoration:none">Cancel</a>` : ''}
+            </div>
+          </div>`;
+        }).join('') : '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">No orders yet.</div>';
+
+        openModal('My Orders', rows + `
+          <button id="soBtn" style="width:100%;padding:10px;background:#fff;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:6px">Sign Out</button>`);
+        document.getElementById('soBtn').addEventListener('click', () => { signOut(); closeModal(); });
+        document.querySelectorAll('[data-mycancel]').forEach(a => a.addEventListener('click', async e => {
+          e.preventDefault();
+          if (!confirm('Cancel this order?')) return;
+          const res2 = await fetch('/api/orders', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'cancel', token: cust.token, orderId: a.dataset.mycancel })
+          });
+          const d2 = await res2.json();
+          toast(d2.success ? 'Order cancelled' : (d2.error || 'Could not cancel'));
+          if (d2.success) showMyOrders();
+        }));
+      } catch (e) {
+        openModal('My Orders', '<div style="text-align:center;color:#b91c1c;padding:20px;font-size:13px">Could not load orders.</div>');
+      }
+    }
+
+    function signOut() {
+      if (cust) fetch('/api/customer-auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout', token: cust.token })
+      }).catch(() => {});
+      cust = null;
+      localStorage.removeItem('custSession');
+      refreshAccountBtn();
+    }
+
+    refreshAccountBtn();
     loadMarketplace();
     updateCartCount();
   </script>

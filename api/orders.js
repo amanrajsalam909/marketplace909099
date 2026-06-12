@@ -1,7 +1,10 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
-const { sendOrderConfirmation, sendVendorNotification } = require('../lib/email');
+const { sendOrderConfirmation, sendVendorNotification, sendStatusUpdate } = require('../lib/email');
+const { validateCustomerSession } = require('./customer-auth');
 const crypto = require('crypto');
+
+const CUSTOMER_CANCEL_WINDOW_MS = 10 * 60 * 1000;
 
 // The checkout pipeline lives in the database (place_marketplace_order RPC):
 // one atomic transaction covering stock locking, validation, pricing,
@@ -16,6 +19,20 @@ module.exports = async (req, res) => {
 
   try {
     if (req.method === 'GET') {
+      // Logged-in customer: list my orders
+      if (req.query.myOrders) {
+        const session = await validateCustomerSession(req.query.token);
+        if (!session) return res.status(401).json({ error: 'Not logged in.' });
+
+        const { data } = await supabase
+          .from('orders')
+          .select('order_id, status, total, payment_method, payment_status, created_at')
+          .eq('customer_phone', session.phone)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        return res.json(data || []);
+      }
+
       // Customer order lookup: requires order ID + matching phone
       const { orderId, phone } = req.query;
       if (!orderId || !phone) {
@@ -84,6 +101,38 @@ module.exports = async (req, res) => {
           notifyByEmail(data.orders, customer).catch(e => console.error('email failed:', e.message));
         }
 
+        return res.json(data);
+      }
+
+      // Customer self-cancellation: own order, still pending, within 10 minutes
+      if (action === 'cancel') {
+        const session = await validateCustomerSession(req.body.token);
+        if (!session) return res.status(401).json({ error: 'Please sign in to cancel an order.' });
+
+        const { orderId } = req.body;
+        const { data: ord } = await supabase
+          .from('orders')
+          .select('order_id, status, customer_phone, customer_email, created_at')
+          .eq('order_id', orderId)
+          .single();
+
+        if (!ord || ord.customer_phone !== session.phone) {
+          return res.status(404).json({ error: 'Order not found.' });
+        }
+        if (ord.status !== 'pending') {
+          return res.status(400).json({ error: `This order is already ${ord.status} and can no longer be cancelled. Contact the shop for help.` });
+        }
+        if (Date.now() - new Date(ord.created_at).getTime() > CUSTOMER_CANCEL_WINDOW_MS) {
+          return res.status(400).json({ error: 'The 10-minute cancellation window has closed. Contact the shop for help.' });
+        }
+
+        // Atomic: re-checks status under lock, restores stock, audit-logs
+        const { data, error } = await supabase.rpc('cancel_order', {
+          p_order_id: orderId, p_actor: 'customer', p_reason: 'Cancelled by customer'
+        });
+        if (error) return res.status(400).json({ error: error.message });
+
+        sendStatusUpdate(ord.customer_email, orderId, 'cancelled').catch(() => {});
         return res.json(data);
       }
 

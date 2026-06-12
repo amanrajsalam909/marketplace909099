@@ -322,6 +322,14 @@
 
       document.getElementById('checkoutForm').addEventListener('submit', placeOrder);
 
+      // Prefill for signed-in customers
+      const cust = JSON.parse(localStorage.getItem('custSession') || 'null');
+      if (cust) {
+        if (cust.name) document.getElementById('cName').value = cust.name;
+        if (cust.phone) document.getElementById('cPhone').value = cust.phone;
+        if (cust.email) document.getElementById('cEmail').value = cust.email;
+      }
+
       document.querySelectorAll('input[name="payMethod"]').forEach(r =>
         r.addEventListener('change', () => {
           document.getElementById('upiBox').style.display =

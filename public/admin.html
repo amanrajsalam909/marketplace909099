@@ -206,6 +206,8 @@
       <button class="tab" data-tab="categories">Categories</button>
       <button class="tab" data-tab="orders">Orders</button>
       <button class="tab" data-tab="payments">Payments</button>
+      <button class="tab" data-tab="reviews">Reviews</button>
+      <button class="tab" data-tab="complaints">Complaints</button>
       <button class="tab" data-tab="settings">Settings</button>
     </div>
 
@@ -257,6 +259,23 @@
         <h3>📲 UPI payments awaiting verification</h3>
         <p style="font-size:13px;color:var(--muted);margin:-6px 0 14px">Match the UTR with your bank/UPI app, then verify. Verifying auto-confirms a pending order and emails the customer.</p>
         <div id="paymentsList"><div class="state">Loading…</div></div>
+      </div>
+    </section>
+
+    <!-- REVIEWS -->
+    <section class="panel" id="panel-reviews">
+      <div class="card">
+        <h3>⭐ Review moderation</h3>
+        <p style="font-size:13px;color:var(--muted);margin:-6px 0 14px">Only approved reviews appear on the storefront.</p>
+        <div id="reviewsList"><div class="state">Loading…</div></div>
+      </div>
+    </section>
+
+    <!-- COMPLAINTS -->
+    <section class="panel" id="panel-complaints">
+      <div class="card">
+        <h3>📨 Complaints</h3>
+        <div id="complaintsList"><div class="state">Loading…</div></div>
       </div>
     </section>
 
@@ -633,6 +652,76 @@
       }
     });
 
+    /* ---------- Reviews & Complaints ---------- */
+    async function loadReviews() {
+      try {
+        const list = await api(`/api/feedback?reviews=1&token=${encodeURIComponent(token)}`);
+        const el = document.getElementById('reviewsList');
+        if (!list.length) { el.innerHTML = '<div class="state">No reviews yet.</div>'; return; }
+        el.innerHTML = list.map(r => `
+          <div class="list-row">
+            <div class="row-info">
+              <div class="row-title">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)} — ${esc(r.customer_name)}</div>
+              <div class="row-sub">${esc((r.vendors || {}).name || '')} · ${esc(r.order_id)} · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
+              ${r.comment ? `<div style="font-size:13px;color:var(--text);margin-top:6px">"${esc(r.comment)}"</div>` : ''}
+            </div>
+            <span class="badge ${r.approved ? 'on' : 'off'}">${r.approved ? 'LIVE' : 'PENDING'}</span>
+            <div class="row-actions">
+              <button class="btn btn-outline btn-sm" data-rev-approve="${r.id}" data-approved="${r.approved}">${r.approved ? 'Unpublish' : 'Approve'}</button>
+              <button class="btn btn-outline btn-sm danger" data-rev-delete="${r.id}">Delete</button>
+            </div>
+          </div>`).join('');
+      } catch (e) {
+        document.getElementById('reviewsList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    document.getElementById('reviewsList').addEventListener('click', async e => {
+      const ap = e.target.closest('[data-rev-approve]');
+      const del = e.target.closest('[data-rev-delete]');
+      try {
+        if (ap) {
+          await apiPost({ action: 'set-review-approval', reviewId: ap.dataset.revApprove, approved: ap.dataset.approved !== 'true' });
+          toast('Review updated'); loadReviews();
+        } else if (del) {
+          if (!confirm('Delete this review permanently?')) return;
+          await apiPost({ action: 'delete-review', reviewId: del.dataset.revDelete });
+          toast('Review deleted'); loadReviews();
+        }
+      } catch (err) { toast(err.message); }
+    });
+
+    async function loadComplaints() {
+      try {
+        const list = await api(`/api/feedback?complaints=1&token=${encodeURIComponent(token)}`);
+        const el = document.getElementById('complaintsList');
+        if (!list.length) { el.innerHTML = '<div class="state">No complaints. 🎉</div>'; return; }
+        const COL = { 'Open': 'off', 'In Progress': '', 'Resolved': 'on' };
+        el.innerHTML = list.map(c => `
+          <div class="list-row">
+            <div class="row-info">
+              <div class="row-title">${esc(c.subject)}</div>
+              <div class="row-sub">${esc(c.order_id)} · ${esc((c.vendors || {}).name || '')} · ${esc(c.customer_name)} (${esc(c.email)}) · ${new Date(c.created_at).toLocaleDateString('en-IN')}</div>
+              <div style="font-size:13px;color:var(--text);margin-top:6px">${esc(c.description)}</div>
+            </div>
+            <select data-comp="${c.id}" style="width:auto;padding:7px 10px;font-size:12px">
+              ${['Open', 'In Progress', 'Resolved'].map(s => `<option ${c.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+            </select>
+          </div>`).join('');
+      } catch (e) {
+        document.getElementById('complaintsList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    document.getElementById('complaintsList').addEventListener('change', async e => {
+      const sel = e.target.closest('[data-comp]');
+      if (!sel) return;
+      try {
+        await apiPost({ action: 'update-complaint', complaintId: sel.dataset.comp, status: sel.value });
+        toast('Complaint status updated');
+      } catch (err) { toast(err.message); }
+    });
+
     /* ---------- Settings ---------- */
     document.getElementById('pwForm').addEventListener('submit', async e => {
       e.preventDefault();
@@ -656,6 +745,8 @@
         document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
         if (tab.dataset.tab === 'orders') loadOrders();
         if (tab.dataset.tab === 'payments') loadPayments();
+        if (tab.dataset.tab === 'reviews') loadReviews();
+        if (tab.dataset.tab === 'complaints') loadComplaints();
       });
     });
 
