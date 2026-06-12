@@ -61,6 +61,13 @@ module.exports = async (req, res) => {
         return res.json(data);
       }
 
+      if (action === 'accounting') {
+        const { from, to } = period(req.query.days);
+        const { data, error } = await supabase.rpc('platform_accounting', { p_from: from, p_to: to });
+        if (error) throw error;
+        return res.json(data);
+      }
+
       if (action === 'pending-payments') {
         const { data, error } = await supabase
           .from('orders')
@@ -223,6 +230,19 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+function period(days) {
+  const to = new Date(Date.now() + 60 * 1000).toISOString();
+  if (days === '0') {
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    return { from: start.toISOString(), to };
+  }
+  const n = parseInt(days, 10);
+  if (Number.isFinite(n) && n > 0) {
+    return { from: new Date(Date.now() - n * 86400000).toISOString(), to };
+  }
+  return { from: '2000-01-01T00:00:00Z', to };
+}
 
 async function validateAdminSession(token) {
   if (!token) return null;

@@ -256,6 +256,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="orders">Orders</button>
       <button class="tab" data-tab="products">Products</button>
+      <button class="tab" data-tab="accounting">Accounting</button>
       <button class="tab" data-tab="settings">Shop Settings</button>
     </div>
 
@@ -298,6 +299,16 @@
       </div>
 
       <div class="product-list" id="productsList"><div class="state">Loading products…</div></div>
+    </section>
+
+    <section class="panel" id="panel-accounting">
+      <div class="chips" id="accChips">
+        <button class="chip active" data-days="0">Today</button>
+        <button class="chip" data-days="7">7 Days</button>
+        <button class="chip" data-days="30">30 Days</button>
+        <button class="chip" data-days="">All Time</button>
+      </div>
+      <div id="accBody"><div class="state">Loading accounts…</div></div>
     </section>
 
     <section class="panel" id="panel-settings">
@@ -619,6 +630,76 @@
       }
     });
 
+    /* ---------- Accounting ---------- */
+    let accDays = '0';
+
+    document.getElementById('accChips').addEventListener('click', e => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      document.querySelectorAll('#accChips .chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      accDays = chip.dataset.days;
+      loadAccounting();
+    });
+
+    async function loadAccounting() {
+      const body = document.getElementById('accBody');
+      body.innerHTML = '<div class="state">Loading accounts…</div>';
+      try {
+        const res = await fetch('/api/vendor-orders?accounting=1&days=' + accDays + '&token=' + encodeURIComponent(token));
+        if (res.status === 401) return authFail();
+        const { summary, ledger } = await res.json();
+        const d = summary.delivered, ip = summary.in_progress, cx = summary.cancelled;
+
+        const card = (label, value, color) =>
+          `<div class="stat"><div class="label">${label}</div><div class="value" style="font-size:21px;${color ? 'color:' + color : ''}">${value}</div></div>`;
+
+        body.innerHTML = `
+          <div class="stats" style="margin-bottom:14px">
+            ${card('Gross Sales (items)', inr(d.gross))}
+            ${card('Delivery Fees', inr(d.delivery_fees))}
+            ${card('Commission (−)', '− ' + inr(d.commission), 'var(--red)')}
+            ${card('Net Earnings', inr(d.net), 'var(--green)')}
+          </div>
+          <div class="stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:18px">
+            ${card('Delivered Orders', d.orders)}
+            ${card('💵 COD Collected', inr(d.cod_cash))}
+            ${card('📲 UPI Online', inr(d.upi_online))}
+            ${card('In Progress', ip.orders + ' (' + inr(ip.value) + ')', 'var(--amber)')}
+          </div>
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <h3 style="font-size:15px;font-weight:700;color:var(--dark)">Delivered order ledger</h3>
+              <span style="font-size:12px;color:var(--muted)">${cx.orders} cancelled in period</span>
+            </div>
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:13px">
+                <thead><tr>
+                  ${['Date', 'Order', 'Items', 'Delivery', 'Commission', 'Net', 'Paid via'].map(h =>
+                    `<th style="text-align:left;padding:9px 10px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;border-bottom:2px solid var(--border);white-space:nowrap">${h}</th>`).join('')}
+                </tr></thead>
+                <tbody>
+                  ${ledger.length ? ledger.map(o => `
+                    <tr>
+                      <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9;white-space:nowrap">${new Date(o.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
+                      <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9"><b style="color:var(--dark)">${esc(o.order_id)}</b></td>
+                      <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9">${inr(o.subtotal)}</td>
+                      <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9">${inr(o.delivery_fee)}</td>
+                      <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9;color:var(--red)">− ${inr(o.commission_amount)}</td>
+                      <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9;font-weight:700;color:var(--green)">${inr(Number(o.subtotal) + Number(o.delivery_fee) - Number(o.commission_amount))}</td>
+                      <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9">${esc(o.payment_method)} · ${esc(o.payment_status)}</td>
+                    </tr>`).join('')
+                  : '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--muted)">No delivered orders in this period.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:10px">Net = items + delivery fee − marketplace commission. Revenue counts on delivery; cancelled orders are excluded.</div>
+          </div>`;
+      } catch (e) {
+        body.innerHTML = '<div class="state">Could not load accounts. Refresh to retry.</div>';
+      }
+    }
+
     /* ---------- Shop settings ---------- */
     document.getElementById('sDays').innerHTML = 'Sun Mon Tue Wed Thu Fri Sat'.split(' ').map((d, i) =>
       `<label style="display:flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:8px;padding:7px 11px;font-size:13px;text-transform:none;letter-spacing:0;cursor:pointer;margin:0">
@@ -702,6 +783,7 @@
         tab.classList.add('active');
         document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
         if (tab.dataset.tab === 'settings' && !settingsLoaded) loadSettings();
+        if (tab.dataset.tab === 'accounting') loadAccounting();
       });
     });
 

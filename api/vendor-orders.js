@@ -55,6 +55,28 @@ module.exports = async (req, res) => {
     if (req.method === 'GET') {
       const { status } = req.query;
 
+      // Accounting summary + ledger (period in days; 0 = today, blank = all time)
+      if (req.query.accounting) {
+        const { from, to } = period(req.query.days);
+
+        const [{ data: summary, error: sumErr }, { data: ledger }] = await Promise.all([
+          supabase.rpc('vendor_accounting', {
+            p_vendor_id: session.vendor_id, p_from: from, p_to: to
+          }),
+          supabase
+            .from('orders')
+            .select('order_id, created_at, subtotal, delivery_fee, commission_amount, total, payment_method, payment_status')
+            .eq('vendor_id', session.vendor_id)
+            .eq('status', 'delivered')
+            .gte('created_at', from)
+            .lt('created_at', to)
+            .order('created_at', { ascending: false })
+            .limit(200)
+        ]);
+        if (sumErr) throw sumErr;
+        return res.json({ summary, ledger: ledger || [] });
+      }
+
       await sweepStalePending(session.vendor_id).catch(() => {});
 
       let query = supabase
@@ -151,6 +173,20 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+// Period helper: days=0 → today (midnight to now), days=N → last N days, else all time
+function period(days) {
+  const to = new Date(Date.now() + 60 * 1000).toISOString();
+  if (days === '0') {
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    return { from: start.toISOString(), to };
+  }
+  const n = parseInt(days, 10);
+  if (Number.isFinite(n) && n > 0) {
+    return { from: new Date(Date.now() - n * 86400000).toISOString(), to };
+  }
+  return { from: '2000-01-01T00:00:00Z', to };
+}
 
 async function validateVendorSession(token) {
   if (!token) return null;

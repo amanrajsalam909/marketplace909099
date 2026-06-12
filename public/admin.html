@@ -206,6 +206,7 @@
       <button class="tab" data-tab="categories">Categories</button>
       <button class="tab" data-tab="orders">Orders</button>
       <button class="tab" data-tab="payments">Payments</button>
+      <button class="tab" data-tab="accounting">Accounting</button>
       <button class="tab" data-tab="reviews">Reviews</button>
       <button class="tab" data-tab="complaints">Complaints</button>
       <button class="tab" data-tab="settings">Settings</button>
@@ -260,6 +261,17 @@
         <p style="font-size:13px;color:var(--muted);margin:-6px 0 14px">Match the UTR with your bank/UPI app, then verify. Verifying auto-confirms a pending order and emails the customer.</p>
         <div id="paymentsList"><div class="state">Loading…</div></div>
       </div>
+    </section>
+
+    <!-- ACCOUNTING -->
+    <section class="panel" id="panel-accounting">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px" id="accChips">
+        <button class="btn btn-outline btn-sm acc-chip" data-days="0" style="border-radius:999px">Today</button>
+        <button class="btn btn-outline btn-sm acc-chip" data-days="7" style="border-radius:999px">7 Days</button>
+        <button class="btn btn-outline btn-sm acc-chip active" data-days="30" style="border-radius:999px;background:var(--dark);color:#fff;border-color:var(--dark)">30 Days</button>
+        <button class="btn btn-outline btn-sm acc-chip" data-days="" style="border-radius:999px">All Time</button>
+      </div>
+      <div id="accBody"><div class="state">Loading accounts…</div></div>
     </section>
 
     <!-- REVIEWS -->
@@ -660,6 +672,72 @@
       }
     });
 
+    /* ---------- Accounting ---------- */
+    let accDays = '30';
+
+    document.getElementById('accChips').addEventListener('click', e => {
+      const chip = e.target.closest('.acc-chip');
+      if (!chip) return;
+      document.querySelectorAll('.acc-chip').forEach(c => {
+        c.classList.remove('active');
+        c.style.background = ''; c.style.color = ''; c.style.borderColor = '';
+      });
+      chip.classList.add('active');
+      chip.style.background = 'var(--dark)'; chip.style.color = '#fff'; chip.style.borderColor = 'var(--dark)';
+      accDays = chip.dataset.days;
+      loadAccounting();
+    });
+
+    async function loadAccounting() {
+      const body = document.getElementById('accBody');
+      body.innerHTML = '<div class="state">Loading accounts…</div>';
+      try {
+        const a = await apiGet('accounting&days=' + accDays);
+        const t = a.totals, ip = a.in_progress;
+
+        const card = (label, value, color) =>
+          `<div class="stat"><div class="label">${label}</div><div class="value" style="font-size:21px;${color ? 'color:' + color : ''}">${value}</div></div>`;
+
+        body.innerHTML = `
+          <div class="stats" style="margin-bottom:14px">
+            ${card('GMV (delivered)', inr(t.gmv))}
+            ${card('Marketplace Commission', inr(t.commission), 'var(--green)')}
+            ${card('Delivered Orders', t.orders)}
+            ${card('In Progress', ip.orders + ' (' + inr(ip.value) + ')', 'var(--amber)')}
+          </div>
+          <div class="stats" style="margin-bottom:18px">
+            ${card('Items Value', inr(t.gross))}
+            ${card('Delivery Fees', inr(t.delivery_fees))}
+            ${card('💵 COD Volume', inr(t.cod))}
+            ${card('📲 UPI Volume', inr(t.upi))}
+          </div>
+          <div class="card">
+            <h3>Per-shop settlement summary</h3>
+            <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Commission = what each shop owes the marketplace for this period. Payout = what the shop keeps (items + delivery − commission).</p>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Shop</th><th>Orders</th><th>Items Value</th><th>Delivery</th><th>Rate</th><th>Commission Due</th><th>Shop Keeps</th></tr></thead>
+                <tbody>
+                  ${(a.by_vendor || []).filter(v => v.orders > 0 || accDays === '').map(v => `
+                    <tr>
+                      <td><b>${esc(v.name)}</b></td>
+                      <td>${v.orders}</td>
+                      <td>${inr(v.gross)}</td>
+                      <td>${inr(v.delivery_fees)}</td>
+                      <td>${Number(v.commission_percent)}%</td>
+                      <td><b style="color:var(--green)">${inr(v.commission)}</b></td>
+                      <td>${inr(v.payout)}</td>
+                    </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No delivered orders in this period.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:10px">Revenue recognised on delivery. Cancelled orders excluded (${(a.cancelled || {}).orders || 0} in period). All figures computed by the database in exact paise.</div>
+          </div>`;
+      } catch (e) {
+        body.innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
     /* ---------- Reviews & Complaints ---------- */
     async function loadReviews() {
       try {
@@ -762,6 +840,7 @@
         document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
         if (tab.dataset.tab === 'orders') loadOrders();
         if (tab.dataset.tab === 'payments') loadPayments();
+        if (tab.dataset.tab === 'accounting') loadAccounting();
         if (tab.dataset.tab === 'reviews') loadReviews();
         if (tab.dataset.tab === 'complaints') loadComplaints();
       });
