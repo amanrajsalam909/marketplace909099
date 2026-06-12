@@ -119,6 +119,19 @@
     }
     .field-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
+    /* Address book chips */
+    .book-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .book-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 12px; font-size: 13px; font-weight: 600;
+      background: var(--card); cursor: pointer; user-select: none;
+    }
+    .book-chip:hover { border-color: var(--primary); }
+    .book-chip.sel { border-color: var(--primary); background: var(--primary-light); color: var(--dark); }
+    .book-x { color: #cbd5e1; font-weight: 700; padding: 0 2px; margin-left: 2px; }
+    .book-x:hover { color: #dc2626; }
+
     /* Area autocomplete (OpenStreetMap) */
     .sug-wrap { position: relative; }
     .sug-list {
@@ -329,6 +342,7 @@
                 <label for="cEmail">Email</label>
                 <input id="cEmail" type="email" autocomplete="email" required>
               </div>
+              ${bookChipsHtml()}
               <div class="field">
                 <label for="aFlat">Flat / House No.</label>
                 <input id="aFlat" type="text" placeholder="e.g. Flat 302 or House No. 12">
@@ -359,6 +373,12 @@
                 <div class="field">
                   <label for="aPin">PIN Code</label>
                   <input id="aPin" type="text" inputmode="numeric" maxlength="6" placeholder="e.g. 360001">
+                </div>
+              </div>
+              <div class="field">
+                <label>Save this address as</label>
+                <div class="book-row">
+                  ${BOOK_LABELS.map(l => `<div class="book-chip ${saveAsLabel === l ? 'sel' : ''}" data-saveas="${l}">${BOOK_ICONS[l]} ${l}</div>`).join('')}
                 </div>
               </div>
               <div class="field">
@@ -431,6 +451,61 @@
     // the customer's last order
     let formVals = JSON.parse(localStorage.getItem('savedAddress') || '{}');
 
+    /* ---- Address book: Home / Office / Other. Signed-in customers sync
+       via the server (works across devices); guests keep a local book. ---- */
+    const BOOK_LABELS = ['Home', 'Office', 'Other'];
+    const BOOK_ICONS = { Home: '🏠', Office: '🏢', Other: '📍' };
+    const PART_IDS = { aFlat: 'flat', aBldg: 'building', aStreet: 'street', aArea: 'area', aLandmark: 'landmark', aCity: 'city', aPin: 'pin' };
+    let addressBook = JSON.parse(localStorage.getItem('addressBook') || '{}');
+    let saveAsLabel = localStorage.getItem('lastAddressLabel') || 'Home';
+    const custSess = JSON.parse(localStorage.getItem('custSession') || 'null');
+
+    const custApi = body => fetch('/api/customer-auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: custSess.token, ...body })
+    });
+
+    async function loadAddressBook() {
+      if (!custSess) return;
+      try {
+        const res = await custApi({ action: 'get-addresses' });
+        const d = await res.json();
+        if (res.ok && d.addresses && Object.keys(d.addresses).length) {
+          addressBook = d.addresses;
+          localStorage.setItem('addressBook', JSON.stringify(addressBook));
+          render();
+        }
+      } catch (_) { /* local book remains the fallback */ }
+    }
+
+    function composeOneLine(a) {
+      return [a.flat, a.building, a.street, a.area, a.landmark ? 'Near ' + a.landmark : '',
+        (a.city || '') + (a.pin ? ' - ' + a.pin : '')].filter(Boolean).join(', ');
+    }
+
+    function bookChipsHtml() {
+      const labels = BOOK_LABELS.filter(l => addressBook[l]);
+      if (!labels.length) return '';
+      return `
+        <div class="field">
+          <label>Deliver to a saved address</label>
+          <div class="book-row">
+            ${labels.map(l => `
+              <div class="book-chip" data-book="${l}" title="${esc(composeOneLine(addressBook[l]))}">
+                ${BOOK_ICONS[l]} ${l}
+                <span class="book-x" data-book-del="${l}" title="Delete ${l} address">✕</span>
+              </div>`).join('')}
+          </div>
+        </div>`;
+    }
+
+    function saveToBook(label, parts) {
+      addressBook[label] = parts;
+      localStorage.setItem('addressBook', JSON.stringify(addressBook));
+      localStorage.setItem('lastAddressLabel', label);
+      if (custSess) custApi({ action: 'save-address', label, address: parts }).catch(() => {});
+    }
+
     view.addEventListener('input', e => {
       if (!e.target.id) return;
       if (e.target.id === 'aPin') e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
@@ -470,6 +545,35 @@
     }
 
     view.addEventListener('click', e => {
+      const bookDel = e.target.closest('[data-book-del]');
+      if (bookDel) {
+        const l = bookDel.dataset.bookDel;
+        if (!confirm('Delete your saved ' + l + ' address?')) return;
+        delete addressBook[l];
+        localStorage.setItem('addressBook', JSON.stringify(addressBook));
+        if (custSess) custApi({ action: 'delete-address', label: l }).catch(() => {});
+        render();
+        return;
+      }
+      const bookPick = e.target.closest('[data-book]');
+      if (bookPick) {
+        const l = bookPick.dataset.book;
+        const a = addressBook[l];
+        if (a) {
+          Object.entries(PART_IDS).forEach(([id, k]) => { formVals[id] = a[k] || ''; });
+          saveAsLabel = l;
+          render();
+        }
+        return;
+      }
+      const saveAs = e.target.closest('[data-saveas]');
+      if (saveAs) {
+        saveAsLabel = saveAs.dataset.saveas;
+        localStorage.setItem('lastAddressLabel', saveAsLabel);
+        render();
+        return;
+      }
+
       const sug = e.target.closest('[data-sug]');
       if (sug) {
         const s = sugItems[+sug.dataset.sug];
@@ -594,6 +698,7 @@
           aFlat: flat, aBldg: bldg, aStreet: street, aArea: area,
           aLandmark: landmark, aCity: city, aPin: pin
         }));
+        saveToBook(saveAsLabel, { flat, building: bldg, street, area, landmark, city, pin });
         renderSuccess(data.orders || [], phone);
       } catch (err) {
         showError(err.message);
@@ -631,6 +736,7 @@
 
     render();
     loadMeta();
+    loadAddressBook();
   </script>
 </body>
 </html>

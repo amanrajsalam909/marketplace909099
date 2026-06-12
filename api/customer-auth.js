@@ -8,6 +8,21 @@ const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
 const MAX_VERIFY_ATTEMPTS = 5;
 
+const ADDRESS_LABELS = ['Home', 'Office', 'Other'];
+
+// Same field shape the checkout stores in orders.address_json
+function sanitizeAddress(p) {
+  if (!p || typeof p !== 'object') return null;
+  const f = k => String(p[k] || '').trim().slice(0, 120);
+  const a = {
+    flat: f('flat'), building: f('building'), street: f('street'),
+    area: f('area'), landmark: f('landmark'), city: f('city'),
+    pin: f('pin').replace(/\D/g, '').slice(0, 6)
+  };
+  if (!a.flat || !a.area || !a.city || !/^[1-9]\d{5}$/.test(a.pin)) return null;
+  return a;
+}
+
 function normalizePhone(phone) {
   phone = String(phone || '').trim().replace(/[\s\-()]/g, '');
   if (phone.startsWith('+91')) phone = phone.slice(3);
@@ -96,6 +111,50 @@ module.exports = async (req, res) => {
     if (action === 'validate') {
       const session = await validateCustomerSession(token);
       return res.json({ valid: !!session, ...(session || {}) });
+    }
+
+    // ----- Address book: Home / Office / Other slots on the customer row -----
+    if (action === 'get-addresses') {
+      const session = await validateCustomerSession(token);
+      if (!session) return res.status(401).json({ error: 'Session expired — please sign in again.' });
+      const { data } = await supabase
+        .from('customers').select('addresses').eq('phone', session.phone).single();
+      return res.json({ addresses: (data && data.addresses) || {} });
+    }
+
+    if (action === 'save-address' || action === 'delete-address') {
+      const session = await validateCustomerSession(token);
+      if (!session) return res.status(401).json({ error: 'Session expired — please sign in again.' });
+      const label = String(req.body.label || '');
+      if (!ADDRESS_LABELS.includes(label)) {
+        return res.status(400).json({ error: 'Label must be Home, Office or Other.' });
+      }
+
+      const { data: cust } = await supabase
+        .from('customers').select('id, addresses').eq('phone', session.phone).single();
+      const book = (cust && cust.addresses) || {};
+
+      if (action === 'save-address') {
+        const a = sanitizeAddress(req.body.address);
+        if (!a) return res.status(400).json({ error: 'Flat/house, area, city and a valid 6-digit PIN are required.' });
+        book[label] = a;
+      } else {
+        delete book[label];
+      }
+
+      if (cust) {
+        const { error } = await supabase
+          .from('customers').update({ addresses: book }).eq('phone', session.phone);
+        if (error) throw error;
+      } else {
+        // Signed in but never ordered: the customers row doesn't exist yet
+        const { error } = await supabase.from('customers').insert({
+          phone: session.phone, email: session.email, name: session.name || '',
+          total_orders: 0, total_spent: 0, addresses: book
+        });
+        if (error) throw error;
+      }
+      return res.json({ success: true, addresses: book });
     }
 
     if (action === 'logout') {
