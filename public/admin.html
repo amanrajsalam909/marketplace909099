@@ -282,6 +282,14 @@
     <!-- SETTINGS -->
     <section class="panel" id="panel-settings">
       <div class="card">
+        <h3>🛵 Delivery partner PIN</h3>
+        <p style="font-size:13px;color:var(--muted);margin:-6px 0 12px">Delivery partners unlock <b>/delivery.html</b> with this PIN. Share it only with your delivery staff.</p>
+        <form id="pinForm" style="max-width:380px;display:flex;gap:10px">
+          <input id="newPin" type="text" inputmode="numeric" placeholder="4–8 digits" minlength="4" maxlength="8" required>
+          <button type="submit" class="btn btn-primary" style="white-space:nowrap">Update PIN</button>
+        </form>
+      </div>
+      <div class="card">
         <h3>🔑 Change admin password</h3>
         <form id="pwForm" style="max-width:380px">
           <label>New password (min 8 characters)</label>
@@ -723,6 +731,15 @@
     });
 
     /* ---------- Settings ---------- */
+    document.getElementById('pinForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      try {
+        await apiPost({ action: 'set-delivery-pin', pin: document.getElementById('newPin').value.trim() });
+        toast('Delivery PIN updated');
+        e.target.reset();
+      } catch (err) { toast(err.message); }
+    });
+
     document.getElementById('pwForm').addEventListener('submit', async e => {
       e.preventDefault();
       try {

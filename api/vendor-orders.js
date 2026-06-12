@@ -5,15 +5,6 @@ const crypto = require('crypto');
 
 const STALE_PENDING_MS = 60 * 60 * 1000;   // unconfirmed for 1h → auto-cancel
 const DELIVERY_OTP_TTL_MS = 60 * 60 * 1000;
-const MAX_OTP_ATTEMPTS = 5;
-
-// Unambiguous alphabet (no I/O/0/1) for delivery proof IDs
-function deliveryProofId() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let id = 'DLV-';
-  for (let i = 0; i < 8; i++) id += chars[crypto.randomInt(chars.length)];
-  return id;
-}
 
 async function issueDeliveryOtp(orderId, customerEmail) {
   const otp = String(crypto.randomInt(100000, 1000000));
@@ -76,9 +67,23 @@ module.exports = async (req, res) => {
       const { data, error } = await query.order('created_at', { ascending: false }).limit(200);
       if (error) throw error;
 
+      // Attach delivery proof IDs so vendors see the full handover record
+      const deliveredIds = data.filter(o => o.status === 'delivered').map(o => o.order_id);
+      const proofs = {};
+      if (deliveredIds.length) {
+        const { data: evs } = await supabase
+          .from('order_events')
+          .select('order_id, note, created_at')
+          .eq('event', 'delivery_verified')
+          .in('order_id', deliveredIds);
+        (evs || []).forEach(ev => { proofs[ev.order_id] = { note: ev.note, at: ev.created_at }; });
+      }
+
       return res.json(data.map(o => ({
         ...o,
-        items: typeof o.items_json === 'string' ? JSON.parse(o.items_json) : (o.items_json || [])
+        items: typeof o.items_json === 'string' ? JSON.parse(o.items_json) : (o.items_json || []),
+        delivery_proof: proofs[o.order_id]?.note || null,
+        delivered_at: proofs[o.order_id]?.at || null
       })));
     }
 
@@ -123,49 +128,8 @@ module.exports = async (req, res) => {
         return res.json(data);
       }
 
-      if (action === 'verify-delivery') {
-        const given = String(req.body.otp || '').trim();
-        if (!given) return res.status(400).json({ error: 'Enter the customer\'s delivery code.' });
-
-        const { data: row } = await supabase
-          .from('delivery_otps').select('otp, attempts, expires_at').eq('order_id', orderId).single();
-        if (!row) return res.status(400).json({ error: 'No delivery code found — use "Resend code" first.' });
-        if (new Date(row.expires_at) < new Date()) {
-          return res.status(400).json({ error: 'The delivery code expired — resend a fresh one.' });
-        }
-        if (row.attempts >= MAX_OTP_ATTEMPTS) {
-          return res.status(400).json({ error: 'Too many wrong attempts — resend a fresh code.' });
-        }
-        if (given !== String(row.otp)) {
-          await supabase.from('delivery_otps').update({ attempts: row.attempts + 1 }).eq('order_id', orderId);
-          return res.status(400).json({ error: `Wrong code. ${MAX_OTP_ATTEMPTS - row.attempts - 1} attempt(s) left.` });
-        }
-
-        const { data, error } = await supabase.rpc('advance_order_status', {
-          p_order_id: orderId, p_new_status: 'delivered', p_actor: actor
-        });
-        if (error) return res.status(400).json({ error: error.message });
-
-        const proofId = deliveryProofId();
-        await supabase.from('delivery_otps').delete().eq('order_id', orderId);
-        await supabase.from('order_events').insert({
-          order_id: orderId, actor, event: 'delivery_verified',
-          note: 'OTP verified | Proof: ' + proofId
-        });
-
-        sendStatusUpdate(order.customer_email, orderId, 'delivered').catch(() => {});
-        return res.json({ ...data, proofId });
-      }
-
-      if (action === 'resend-delivery-otp') {
-        const { data: ord } = await supabase
-          .from('orders').select('status').eq('order_id', orderId).single();
-        if (!ord || ord.status !== 'ready') {
-          return res.status(400).json({ error: 'Order is not out for delivery.' });
-        }
-        await issueDeliveryOtp(orderId, order.customer_email);
-        return res.json({ success: true });
-      }
+      // Delivery completion lives in the delivery partner panel (/delivery.html);
+      // vendors hand over at "ready" and the delivery API takes it from there.
 
       if (action === 'cancel') {
         const { data, error } = await supabase.rpc('cancel_order', {

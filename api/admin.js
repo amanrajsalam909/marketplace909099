@@ -154,6 +154,16 @@ module.exports = async (req, res) => {
         return res.json({ success: true });
       }
 
+      if (action === 'set-delivery-pin') {
+        const pin = String(req.body.pin || '').trim();
+        if (!/^\d{4,8}$/.test(pin)) return res.status(400).json({ error: 'PIN must be 4–8 digits.' });
+        const { error } = await supabase
+          .from('platform_settings')
+          .upsert({ key: 'delivery_pin', value: pin, updated_at: new Date().toISOString() });
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
       if (action === 'verify-payment') {
         const { orderId, utr } = req.body;
         if (!orderId) return res.status(400).json({ error: 'orderId required' });

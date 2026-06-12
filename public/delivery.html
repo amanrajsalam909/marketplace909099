@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Partner — Rajkot Market</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #e85d04; --primary-dark: #c44e03;
+      --dark: #1e293b; --darker: #0f172a;
+      --text: #334155; --muted: #64748b;
+      --border: #e2e8f0; --bg: #f8fafc; --card: #ffffff;
+      --green: #059669; --red: #dc2626; --amber: #d97706;
+      --radius: 12px; --shadow: 0 1px 3px rgba(15,23,42,0.08);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg); color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* PIN screen */
+    .pin-screen {
+      min-height: 100vh;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 70%, #334155 100%);
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .pin-card {
+      background: var(--card); border-radius: 16px; padding: 32px 28px;
+      width: 100%; max-width: 340px; text-align: center;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+    }
+    .pin-card h1 { font-size: 20px; font-weight: 800; color: var(--dark); }
+    .pin-card h1 span { color: var(--primary); }
+    .pin-card p { font-size: 13px; color: var(--muted); margin: 6px 0 20px; }
+    .pin-card input {
+      width: 100%; padding: 14px; text-align: center;
+      font-size: 24px; letter-spacing: 10px; font-weight: 700;
+      border: 1px solid var(--border); border-radius: 10px; font-family: inherit;
+    }
+    .pin-card input:focus { outline: none; border-color: var(--primary); }
+    .pin-card button {
+      width: 100%; margin-top: 14px; padding: 13px;
+      background: var(--primary); color: #fff; border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer;
+    }
+    .pin-err { color: var(--red); font-size: 13px; font-weight: 600; margin-top: 10px; display: none; }
+
+    /* App */
+    .app { display: none; }
+    .topbar { background: var(--darker); color: #fff; position: sticky; top: 0; z-index: 50; }
+    .topbar-inner {
+      max-width: 700px; margin: 0 auto; padding: 14px 16px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .brand { font-size: 17px; font-weight: 800; }
+    .brand span { color: #fb923c; }
+    .brand small { font-size: 10px; color: #94a3b8; margin-left: 8px; letter-spacing: 1px; }
+    .lock-btn {
+      background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2);
+      padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
+      font-family: inherit; cursor: pointer;
+    }
+    .container { max-width: 700px; margin: 0 auto; padding: 18px 16px 50px; }
+
+    .seg {
+      display: flex; background: #eef2f7; border-radius: 10px; padding: 4px; margin-bottom: 16px;
+    }
+    .seg button {
+      flex: 1; padding: 9px; border: none; background: transparent; border-radius: 8px;
+      font-size: 13px; font-weight: 700; color: var(--muted); font-family: inherit; cursor: pointer;
+    }
+    .seg button.active { background: var(--card); color: var(--dark); box-shadow: var(--shadow); }
+
+    .dcard {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 16px; margin-bottom: 12px; box-shadow: var(--shadow);
+    }
+    .dtop { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+    .oid { font-size: 14px; font-weight: 800; color: var(--dark); }
+    .shop { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .amount { font-size: 18px; font-weight: 800; color: var(--dark); white-space: nowrap; }
+    .codtag {
+      display: inline-block; background: #fef3c7; color: #92400e;
+      font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 999px; margin-top: 4px;
+    }
+    .paidtag {
+      display: inline-block; background: #d1fae5; color: #065f46;
+      font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 999px; margin-top: 4px;
+    }
+    .addr {
+      background: var(--bg); border-radius: 8px; padding: 10px 12px;
+      font-size: 13px; color: var(--text); margin: 10px 0;
+    }
+    .addr b { color: var(--dark); }
+    .addr a { color: var(--primary); text-decoration: none; font-weight: 700; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      flex: 1; min-width: 130px; padding: 12px; border-radius: 9px;
+      font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; border: none;
+    }
+    .btn-cash { background: var(--amber); color: #fff; }
+    .btn-deliver { background: var(--green); color: #fff; }
+    .btn-deliver:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .btn-ghost { background: var(--card); border: 1px solid var(--border); color: var(--muted); flex: 0; min-width: auto; padding: 12px 14px; }
+    .hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+    .done-card { border-left: 4px solid var(--green); }
+    .proof { font-size: 15px; font-weight: 800; color: var(--green); }
+    .done-meta { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+    .done-meta b { color: var(--dark); }
+
+    .state { text-align: center; padding: 44px 16px; color: var(--muted); font-size: 14px; }
+
+    .toast {
+      position: fixed; bottom: 20px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--dark); color: #fff; padding: 12px 22px; border-radius: 999px;
+      font-size: 14px; font-weight: 600; transition: transform 0.25s; z-index: 200;
+      max-width: calc(100vw - 32px); text-align: center;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+  <!-- PIN gate -->
+  <div class="pin-screen" id="pinScreen">
+    <div class="pin-card">
+      <h1>Rajkot<span>Market</span></h1>
+      <p>🛵 Delivery Partner — enter your PIN</p>
+      <input id="pinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
+      <button id="pinBtn">Unlock</button>
+      <div class="pin-err" id="pinErr">Wrong PIN — try again.</div>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div class="app" id="app">
+    <div class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Rajkot<span>Market</span><small>DELIVERY</small></div>
+        <button class="lock-btn" onclick="lock()">🔒 Lock</button>
+      </div>
+    </div>
+    <div class="container">
+      <div class="seg">
+        <button class="active" id="segActive" onclick="showSeg('active')">🛵 To Deliver</button>
+        <button id="segDone" onclick="showSeg('done')">✅ Completed Today</button>
+      </div>
+      <div id="activeList"><div class="state">Loading…</div></div>
+      <div id="doneList" style="display:none"><div class="state">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let PIN = sessionStorage.getItem('deliveryPin') || '';
+    let cashDone = {};   // orderId -> true once cash collected this session
+
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const inr = n => '₹' + Number(n).toLocaleString('en-IN');
+    const ddmmyyyy = iso => {
+      const d = new Date(iso);
+      return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear()
+        + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    };
+
+    function toast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(el._t);
+      el._t = setTimeout(() => el.classList.remove('show'), 2600);
+    }
+
+    async function api(action, extra) {
+      const res = await fetch('/api/delivery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: PIN, action, ...(extra || {}) })
+      });
+      const data = await res.json();
+      if (res.status === 401) { lock(); throw new Error('Wrong PIN'); }
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+
+    /* ---- PIN gate ---- */
+    async function unlock() {
+      PIN = document.getElementById('pinInput').value.trim();
+      try {
+        await api('get-orders');
+        sessionStorage.setItem('deliveryPin', PIN);
+        document.getElementById('pinScreen').style.display = 'none';
+        document.getElementById('app').style.display = 'block';
+        loadActive();
+      } catch (e) {
+        document.getElementById('pinErr').style.display = 'block';
+      }
+    }
+    document.getElementById('pinBtn').addEventListener('click', unlock);
+    document.getElementById('pinInput').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+
+    function lock() {
+      PIN = '';
+      sessionStorage.removeItem('deliveryPin');
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('pinScreen').style.display = 'flex';
+      document.getElementById('pinInput').value = '';
+    }
+
+    /* ---- Segments ---- */
+    function showSeg(which) {
+      document.getElementById('segActive').classList.toggle('active', which === 'active');
+      document.getElementById('segDone').classList.toggle('active', which === 'done');
+      document.getElementById('activeList').style.display = which === 'active' ? 'block' : 'none';
+      document.getElementById('doneList').style.display = which === 'done' ? 'block' : 'none';
+      which === 'active' ? loadActive() : loadDone();
+    }
+
+    /* ---- Active deliveries ---- */
+    async function loadActive() {
+      try {
+        const orders = await api('get-orders');
+        const el = document.getElementById('activeList');
+        if (!orders.length) {
+          el.innerHTML = '<div class="state">No orders out for delivery right now. 🎉</div>';
+          return;
+        }
+        el.innerHTML = orders.map(o => {
+          const isCod = o.payment_method === 'COD';
+          const cashCollected = !isCod || o.payment_status === 'Collected' || cashDone[o.order_id];
+          return `
+          <div class="dcard">
+            <div class="dtop">
+              <div>
+                <div class="oid">${esc(o.order_id)}</div>
+                <div class="shop">🏪 ${esc((o.vendors || {}).name || 'Shop')}</div>
+                ${isCod
+                  ? (cashCollected ? '<span class="paidtag">💵 CASH COLLECTED</span>' : `<span class="codtag">💵 COLLECT ${inr(o.total)} CASH</span>`)
+                  : '<span class="paidtag">📲 PAID ONLINE</span>'}
+              </div>
+              <div class="amount">${inr(o.total)}</div>
+            </div>
+            <div class="addr">
+              <b>${esc(o.customer_name)}</b> · <a href="tel:${esc(o.customer_phone)}">📞 ${esc(o.customer_phone)}</a><br>
+              📍 ${esc(o.delivery_address)}
+            </div>
+            <div class="actions">
+              ${isCod && !cashCollected
+                ? `<button class="btn btn-cash" data-cash="${esc(o.order_id)}">💵 Cash Collected</button>`
+                : ''}
+              <button class="btn btn-deliver" data-deliver="${esc(o.order_id)}" ${cashCollected ? '' : 'disabled'}>🔐 Enter Code & Deliver</button>
+              <button class="btn btn-ghost" data-resend="${esc(o.order_id)}">↻</button>
+            </div>
+            ${isCod && !cashCollected ? '<div class="hint">Step 1: collect the cash → Step 2: ask the customer for their 6-digit code.</div>' : ''}
+          </div>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById('activeList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    document.getElementById('activeList').addEventListener('click', async e => {
+      const cash = e.target.closest('[data-cash]');
+      const deliver = e.target.closest('[data-deliver]');
+      const resend = e.target.closest('[data-resend]');
+
+      try {
+        if (cash) {
+          if (!confirm('Confirm: you have collected the full cash amount?')) return;
+          await api('collect-cash', { orderId: cash.dataset.cash });
+          cashDone[cash.dataset.cash] = true;
+          toast('Cash marked collected');
+          loadActive();
+        } else if (deliver) {
+          const code = prompt('Ask the customer for their 6-digit delivery code:');
+          if (code === null || !code.trim()) return;
+          const d = await api('verify-delivery', { orderId: deliver.dataset.deliver, otp: code.trim() });
+          toast('Delivered ✓ Proof: ' + d.proofId);
+          loadActive();
+        } else if (resend) {
+          await api('resend-otp', { orderId: resend.dataset.resend });
+          toast('Fresh code emailed to the customer');
+        }
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+
+    /* ---- Completed today ---- */
+    async function loadDone() {
+      try {
+        const orders = await api('get-completed');
+        const el = document.getElementById('doneList');
+        if (!orders.length) {
+          el.innerHTML = '<div class="state">No deliveries completed today yet.</div>';
+          return;
+        }
+        el.innerHTML = orders.map(o => `
+          <div class="dcard done-card">
+            <div class="dtop">
+              <div>
+                <div class="proof">${esc(o.proof_id || '—')}</div>
+                <div class="done-meta">
+                  <b>${esc(o.order_id)}</b> · ${esc((o.vendors || {}).name || '')}<br>
+                  🗓 ${ddmmyyyy(o.delivered_at)}<br>
+                  👤 ${esc(o.customer_name)}<br>
+                  📍 ${esc(o.delivery_address)}
+                </div>
+              </div>
+              <div class="amount">${inr(o.total)}<div style="font-size:10px;font-weight:700;color:var(--muted);text-align:right">${esc(o.payment_method)}</div></div>
+            </div>
+          </div>`).join('');
+      } catch (e) {
+        document.getElementById('doneList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    /* ---- Auto-unlock if PIN saved + refresh loop ---- */
+    if (PIN) {
+      api('get-orders').then(() => {
+        document.getElementById('pinScreen').style.display = 'none';
+        document.getElementById('app').style.display = 'block';
+        loadActive();
+      }).catch(() => lock());
+    }
+    setInterval(() => {
+      if (PIN && document.getElementById('activeList').style.display !== 'none') loadActive();
+    }, 30000);
+  </script>
+</body>
+</html>

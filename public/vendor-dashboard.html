@@ -428,12 +428,11 @@
                 ${['pending', 'confirmed'].includes(o.status)
                   ? `<button class="cancel-link" data-cancel="${esc(o.order_id)}">Cancel order</button>` : ''}
                 ${o.status === 'delivered'
-                  ? '<span class="done-tag">✓ Completed</span>'
+                  ? `<span class="done-tag">✓ Completed${o.delivery_proof ? '<br><span class="pay-tag" style="font-weight:600">' + esc(o.delivery_proof) + (o.delivered_at ? ' · ' + new Date(o.delivered_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '') + '</span>' : ''}</span>`
                   : o.status === 'cancelled'
                     ? '<span class="pay-tag">Stock restored</span>'
                     : o.status === 'ready'
-                      ? `<button class="cancel-link" data-resend="${esc(o.order_id)}" style="color:var(--muted)">Resend code</button>
-                         <button class="advance-btn" data-deliver="${esc(o.order_id)}">Enter Code & Deliver</button>`
+                      ? '<span class="pay-tag">🛵 With delivery partner</span>'
                       : `<button class="advance-btn" data-advance="${esc(o.order_id)}" data-status="${esc(o.status)}">${NEXT_LABEL[o.status] || 'Advance'}</button>`}
               </div>
             </div>
@@ -459,48 +458,6 @@
           loadProducts();
         } catch (err) {
           toast('Could not cancel: ' + err.message);
-        }
-        return;
-      }
-
-      const deliverBtn = e.target.closest('[data-deliver]');
-      if (deliverBtn) {
-        const code = prompt('Enter the 6-digit delivery code from the customer\n(they received it by email):');
-        if (code === null || !code.trim()) return;
-        deliverBtn.disabled = true;
-        try {
-          const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token, action: 'verify-delivery', orderId: deliverBtn.dataset.deliver, otp: code.trim() })
-          });
-          const data = await res.json();
-          if (!res.ok || !data.success) throw new Error(data.error || 'Verification failed');
-          toast('Delivered ✓ Proof: ' + data.proofId);
-          loadOrders();
-        } catch (err) {
-          toast(err.message);
-          deliverBtn.disabled = false;
-        }
-        return;
-      }
-
-      const resendBtn = e.target.closest('[data-resend]');
-      if (resendBtn) {
-        resendBtn.disabled = true;
-        try {
-          const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token, action: 'resend-delivery-otp', orderId: resendBtn.dataset.resend })
-          });
-          const data = await res.json();
-          if (!res.ok || !data.success) throw new Error(data.error || 'Resend failed');
-          toast('Fresh delivery code emailed to the customer');
-        } catch (err) {
-          toast(err.message);
-        } finally {
-          resendBtn.disabled = false;
         }
         return;
       }
