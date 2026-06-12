@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Track Your Order — Rajkot Market</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #e85d04;
+      --primary-dark: #c44e03;
+      --primary-light: #fff1e6;
+      --dark: #1e293b;
+      --text: #334155;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg); color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .header {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--card); border-bottom: 1px solid var(--border);
+    }
+    .header-inner {
+      max-width: 700px; margin: 0 auto; padding: 14px 20px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .brand { font-size: 20px; font-weight: 800; color: var(--dark); text-decoration: none; letter-spacing: -0.5px; }
+    .brand span { color: var(--primary); }
+    .header a.link { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; }
+    .header a.link:hover { color: var(--primary); }
+
+    .container { max-width: 700px; margin: 0 auto; padding: 28px 20px 60px; }
+    h1 { font-size: 24px; font-weight: 800; color: var(--dark); letter-spacing: -0.5px; margin-bottom: 6px; }
+    .sub { font-size: 14px; color: var(--muted); margin-bottom: 22px; }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      padding: 22px; margin-bottom: 18px;
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .field label {
+      display: block; font-size: 12px; font-weight: 600; color: var(--muted);
+      margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .field input {
+      width: 100%; padding: 11px 12px;
+      border: 1px solid var(--border); border-radius: 8px;
+      font-size: 14px; font-family: inherit; background: var(--bg);
+    }
+    .field input:focus { outline: none; border-color: var(--primary); background: var(--card); }
+    .track-btn {
+      margin-top: 14px; width: 100%; padding: 13px;
+      background: var(--primary); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer;
+    }
+    .track-btn:hover { background: var(--primary-dark); }
+    .track-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .error-box {
+      background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+      padding: 11px 14px; border-radius: 8px; font-size: 13px;
+      margin-bottom: 14px; display: none;
+    }
+
+    /* Timeline */
+    .order-head {
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 8px; margin-bottom: 20px;
+    }
+    .order-id { font-size: 16px; font-weight: 800; color: var(--dark); }
+    .order-total { font-size: 16px; font-weight: 800; color: var(--primary); }
+    .timeline { list-style: none; }
+    .step {
+      display: flex; gap: 14px; position: relative; padding-bottom: 26px;
+    }
+    .step:last-child { padding-bottom: 0; }
+    .step::before {
+      content: ''; position: absolute; left: 13px; top: 28px; bottom: 0;
+      width: 2px; background: var(--border);
+    }
+    .step:last-child::before { display: none; }
+    .step.done::before { background: var(--primary); }
+    .dot {
+      width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+      background: var(--bg); border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; z-index: 1;
+    }
+    .step.done .dot { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .step.current .dot { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+    .step-label { font-size: 14px; font-weight: 700; color: var(--muted); padding-top: 4px; }
+    .step.done .step-label, .step.current .step-label { color: var(--dark); }
+    .step-hint { font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+
+    .items { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--border); }
+    .item-row { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0; color: var(--text); }
+    .addr { margin-top: 14px; font-size: 13px; color: var(--muted); }
+
+    @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a class="brand" href="/">Rajkot<span>Market</span></a>
+      <a class="link" href="/">← Back to shopping</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>Track Your Order</h1>
+    <p class="sub">Enter your order ID and the phone number used at checkout.</p>
+
+    <div class="card">
+      <div class="error-box" id="errorBox"></div>
+      <form id="trackForm">
+        <div class="row">
+          <div class="field">
+            <label for="orderId">Order ID</label>
+            <input id="orderId" type="text" placeholder="ORD-…" required>
+          </div>
+          <div class="field">
+            <label for="phone">Phone</label>
+            <input id="phone" type="tel" inputmode="numeric" placeholder="10-digit mobile" required>
+          </div>
+        </div>
+        <button type="submit" class="track-btn" id="trackBtn">Track Order</button>
+      </form>
+    </div>
+
+    <div id="result"></div>
+  </main>
+
+  <script>
+    const STATUSES = [
+      { key: 'pending',   label: 'Order Placed',  hint: 'Waiting for the vendor to confirm' },
+      { key: 'confirmed', label: 'Confirmed',     hint: 'The vendor has accepted your order' },
+      { key: 'preparing', label: 'Preparing',     hint: 'Your order is being prepared' },
+      { key: 'ready',     label: 'Out for Delivery', hint: 'On the way to you' },
+      { key: 'delivered', label: 'Delivered',     hint: 'Enjoy!' }
+    ];
+
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const inr = n => '₹' + Number(n).toLocaleString('en-IN');
+
+    const form = document.getElementById('trackForm');
+    const result = document.getElementById('result');
+    const errorBox = document.getElementById('errorBox');
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const orderId = document.getElementById('orderId').value.trim();
+      const phone = document.getElementById('phone').value.trim();
+      const btn = document.getElementById('trackBtn');
+
+      errorBox.style.display = 'none';
+      result.innerHTML = '';
+      btn.disabled = true;
+      btn.textContent = 'Looking up…';
+
+      try {
+        const res = await fetch('/api/orders?orderId=' + encodeURIComponent(orderId) + '&phone=' + encodeURIComponent(phone));
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error === 'Order not found'
+          ? 'No order found — check the order ID and phone number.'
+          : (data.error || 'Could not look up the order.'));
+        renderOrder(data);
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Track Order';
+      }
+    });
+
+    function renderOrder(order) {
+      let items = [];
+      try {
+        items = typeof order.items_json === 'string' ? JSON.parse(order.items_json) : (order.items_json || []);
+      } catch (_) {}
+
+      const currentIdx = Math.max(0, STATUSES.findIndex(s => s.key === order.status));
+
+      result.innerHTML = `
+        <div class="card">
+          <div class="order-head">
+            <div class="order-id">${esc(order.order_id)}</div>
+            <div class="order-total">${inr(order.total)}</div>
+          </div>
+          <ul class="timeline">
+            ${STATUSES.map((s, i) => `
+              <li class="step ${i < currentIdx ? 'done' : i === currentIdx ? 'current' : ''}">
+                <div class="dot">${i < currentIdx ? '✓' : i === currentIdx ? '●' : ''}</div>
+                <div>
+                  <div class="step-label">${s.label}</div>
+                  ${i === currentIdx ? `<div class="step-hint">${s.hint}</div>` : ''}
+                </div>
+              </li>`).join('')}
+          </ul>
+          ${items.length ? `
+            <div class="items">
+              ${items.map(i => `<div class="item-row"><span>${esc(i.name)} × ${i.quantity}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}
+            </div>` : ''}
+          ${order.delivery_address ? `<div class="addr">📍 Delivering to: ${esc(order.delivery_address)}</div>` : ''}
+        </div>`;
+    }
+
+    // Pre-fill from URL (e.g. coming from the order-success screen)
+    const params = new URLSearchParams(location.search);
+    if (params.get('orderId')) document.getElementById('orderId').value = params.get('orderId');
+    if (params.get('phone')) document.getElementById('phone').value = params.get('phone');
+    if (params.get('orderId') && params.get('phone')) form.requestSubmit();
+  </script>
+</body>
+</html>

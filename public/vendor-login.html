@@ -3,170 +3,138 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vendor Login - Marketplace</title>
+  <title>Vendor Login — Rajkot Market</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
+    :root {
+      --primary: #e85d04;
+      --primary-dark: #c44e03;
+      --dark: #1e293b;
+      --text: #334155;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fafc;
+      --card: #ffffff;
     }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #7c2d12 0%, #c2410c 60%, #ea580c 100%);
       min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
       padding: 20px;
+      -webkit-font-smoothing: antialiased;
     }
-    .login-container {
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      padding: 40px;
+    .login-card {
+      background: var(--card);
+      border-radius: 16px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+      padding: 36px 32px;
       width: 100%;
       max-width: 400px;
     }
-    h1 {
-      text-align: center;
-      color: #333;
-      margin-bottom: 30px;
-      font-size: 28px;
+    .brand {
+      text-align: center; font-size: 22px; font-weight: 800;
+      color: var(--dark); letter-spacing: -0.5px; margin-bottom: 4px;
     }
-    .form-group {
-      margin-bottom: 20px;
+    .brand span { color: var(--primary); }
+    .subtitle { text-align: center; font-size: 13px; color: var(--muted); margin-bottom: 26px; }
+    .field { margin-bottom: 16px; }
+    .field label {
+      display: block; font-size: 12px; font-weight: 600; color: var(--muted);
+      margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.4px;
     }
-    label {
-      display: block;
-      font-size: 14px;
-      font-weight: 600;
-      color: #333;
-      margin-bottom: 8px;
+    .field input {
+      width: 100%; padding: 12px 14px;
+      border: 1px solid var(--border); border-radius: 10px;
+      font-size: 14px; font-family: inherit; background: var(--bg);
+      transition: border-color 0.15s;
     }
-    input {
-      width: 100%;
-      padding: 12px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 14px;
-      transition: border-color 0.2s;
-    }
-    input:focus {
-      outline: none;
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    .field input:focus {
+      outline: none; border-color: var(--primary); background: var(--card);
+      box-shadow: 0 0 0 3px rgba(232, 93, 4, 0.12);
     }
     .login-btn {
-      width: 100%;
-      padding: 12px;
-      background: #667eea;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
+      width: 100%; padding: 13px;
+      background: var(--primary); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 700; font-family: inherit;
+      cursor: pointer; transition: background 0.15s;
+      margin-top: 4px;
     }
-    .login-btn:hover {
-      background: #5568d3;
-    }
+    .login-btn:hover { background: var(--primary-dark); }
+    .login-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
     .error {
-      background: #fee;
-      color: #c33;
-      padding: 12px;
-      border-radius: 4px;
-      margin-bottom: 20px;
-      display: none;
-      font-size: 14px;
+      background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+      padding: 11px 14px; border-radius: 8px;
+      margin-bottom: 16px; display: none; font-size: 13px;
     }
-    .loading {
-      display: none;
-      text-align: center;
-      color: #667eea;
-      font-size: 14px;
-    }
-    .back-link {
-      text-align: center;
-      margin-top: 20px;
-    }
-    .back-link a {
-      color: #667eea;
-      text-decoration: none;
-      font-size: 14px;
-    }
-    .back-link a:hover {
-      text-decoration: underline;
+    .back-link { text-align: center; margin-top: 20px; }
+    .back-link a { color: var(--muted); text-decoration: none; font-size: 13px; }
+    .back-link a:hover { color: var(--primary); }
+    .hint {
+      margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--border);
+      font-size: 12px; color: var(--muted); text-align: center; line-height: 1.5;
     }
   </style>
 </head>
 <body>
-  <div class="login-container">
-    <h1>🍱 Vendor Login</h1>
+  <div class="login-card">
+    <div class="brand">Rajkot<span>Market</span></div>
+    <div class="subtitle">Vendor Portal — manage your shop and orders</div>
 
     <div id="error" class="error"></div>
 
-    <form onsubmit="handleLogin(event)">
-      <div class="form-group">
-        <label for="email">Email Address</label>
-        <input type="email" id="email" name="email" required>
+    <form id="loginForm">
+      <div class="field">
+        <label for="email">Email address</label>
+        <input type="email" id="email" autocomplete="username" required>
       </div>
-
-      <div class="form-group">
+      <div class="field">
         <label for="password">Password</label>
-        <input type="password" id="password" name="password" required>
+        <input type="password" id="password" autocomplete="current-password" required>
       </div>
-
-      <button type="submit" class="login-btn">
-        <span id="buttonText">Login</span>
-        <span id="loading" class="loading">Loading...</span>
-      </button>
+      <button type="submit" class="login-btn" id="loginBtn">Sign In</button>
     </form>
 
-    <div class="back-link">
-      <a href="index.html">← Back to Home</a>
-    </div>
+    <div class="hint">Want to sell on RajkotMarket?<br>Contact us to get your shop onboarded.</div>
+
+    <div class="back-link"><a href="/">← Back to marketplace</a></div>
   </div>
 
   <script>
-    const API_URL = '';
+    document.getElementById('loginForm').addEventListener('submit', async e => {
+      e.preventDefault();
 
-    async function handleLogin(event) {
-      event.preventDefault();
-
-      const email = document.getElementById('email').value;
+      const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
       const errorDiv = document.getElementById('error');
-      const buttonText = document.getElementById('buttonText');
-      const loading = document.getElementById('loading');
+      const btn = document.getElementById('loginBtn');
 
       errorDiv.style.display = 'none';
-      buttonText.style.display = 'none';
-      loading.style.display = 'inline';
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
 
       try {
-        const res = await fetch(`${API_URL}/api/vendor-auth`, {
+        const res = await fetch('/api/vendor-auth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'login', email, password })
         });
-
         const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error || 'Login failed');
-        }
+        if (!res.ok) throw new Error(data.error || 'Login failed');
 
         localStorage.setItem('vendorToken', data.token);
         localStorage.setItem('vendor', JSON.stringify(data.vendor));
         window.location.href = 'vendor-dashboard.html';
-      } catch (e) {
-        errorDiv.textContent = e.message;
+      } catch (err) {
+        errorDiv.textContent = err.message;
         errorDiv.style.display = 'block';
-        buttonText.style.display = 'inline';
-        loading.style.display = 'none';
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
       }
-    }
+    });
   </script>
 </body>
 </html>

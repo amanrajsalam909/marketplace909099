@@ -3,393 +3,363 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shopping Cart - Marketplace</title>
+  <title>Your Cart — Rajkot Market</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
+    :root {
+      --primary: #e85d04;
+      --primary-dark: #c44e03;
+      --primary-light: #fff1e6;
+      --dark: #1e293b;
+      --text: #334155;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+      --shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.12);
     }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f5f5f5;
-      padding: 20px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
     }
     .header {
-      background: white;
-      padding: 16px 20px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      position: sticky; top: 0; z-index: 100;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
     }
-    .header a {
-      color: #4a90d9;
-      text-decoration: none;
-      font-size: 14px;
+    .header-inner {
+      max-width: 1000px; margin: 0 auto; padding: 14px 20px;
+      display: flex; align-items: center; justify-content: space-between;
     }
-    .container {
-      max-width: 800px;
-      margin: 0 auto;
+    .brand {
+      font-size: 20px; font-weight: 800; color: var(--dark);
+      text-decoration: none; letter-spacing: -0.5px;
     }
-    h1 {
-      color: #333;
-      margin-bottom: 20px;
+    .brand span { color: var(--primary); }
+    .header a.link { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; }
+    .header a.link:hover { color: var(--primary); }
+
+    .container { max-width: 1000px; margin: 0 auto; padding: 28px 20px 60px; }
+    h1 { font-size: 24px; font-weight: 800; color: var(--dark); letter-spacing: -0.5px; margin-bottom: 20px; }
+
+    .layout { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
     }
-    .cart-section {
-      background: white;
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 20px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    .vendor-group { padding: 18px 18px 6px; border-bottom: 1px solid var(--border); }
+    .vendor-group:last-child { border-bottom: none; }
+    .vendor-head {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
     }
-    .section-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: #333;
-      margin-bottom: 16px;
-      border-bottom: 2px solid #f0f0f0;
-      padding-bottom: 12px;
+    .vendor-chip {
+      width: 34px; height: 34px; border-radius: 9px;
+      background: var(--primary-light); color: var(--primary);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 15px;
     }
+    .vendor-title { font-size: 15px; font-weight: 700; color: var(--dark); }
+    .vendor-sub { font-size: 12px; color: var(--muted); }
+
     .cart-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 0;
-      border-bottom: 1px solid #f0f0f0;
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 0; border-top: 1px solid #f1f5f9;
     }
-    .item-details {
-      flex: 1;
+    .item-info { flex: 1; min-width: 0; }
+    .item-name { font-size: 14px; font-weight: 600; color: var(--dark); }
+    .item-unit { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .stepper {
+      display: flex; align-items: center; gap: 0;
+      border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
     }
-    .item-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: #333;
+    .stepper button {
+      width: 30px; height: 30px; border: none; background: var(--card);
+      font-size: 16px; cursor: pointer; color: var(--text); font-family: inherit;
     }
-    .item-price {
-      font-size: 13px;
-      color: #666;
-      margin-top: 4px;
+    .stepper button:hover { background: var(--bg); color: var(--primary); }
+    .stepper .qty {
+      width: 32px; text-align: center; font-size: 13px; font-weight: 700; color: var(--dark);
     }
-    .item-quantity {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin: 0 20px;
+    .item-total { font-size: 14px; font-weight: 700; color: var(--dark); width: 72px; text-align: right; }
+    .remove {
+      background: none; border: none; color: #cbd5e1; cursor: pointer;
+      font-size: 16px; padding: 4px; font-family: inherit;
     }
-    .quantity-btn {
-      width: 24px;
-      height: 24px;
-      border: 1px solid #ddd;
-      background: white;
-      cursor: pointer;
-      border-radius: 4px;
-      font-size: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .remove:hover { color: #dc2626; }
+    .group-total {
+      text-align: right; font-size: 13px; color: var(--muted);
+      padding: 10px 0 12px; border-top: 1px solid #f1f5f9;
     }
-    .quantity-btn:hover {
-      border-color: #4a90d9;
-      color: #4a90d9;
+    .group-total b { color: var(--dark); }
+
+    /* Summary / form */
+    .summary-card { padding: 20px; position: sticky; top: 84px; }
+    .summary-card h2 { font-size: 16px; font-weight: 700; color: var(--dark); margin-bottom: 14px; }
+    .field { margin-bottom: 12px; }
+    .field label {
+      display: block; font-size: 12px; font-weight: 600; color: var(--muted);
+      margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px;
     }
-    .item-total {
-      font-size: 14px;
-      font-weight: 600;
-      color: #4a90d9;
-      min-width: 60px;
-      text-align: right;
+    .field input, .field textarea {
+      width: 100%; padding: 11px 12px;
+      border: 1px solid var(--border); border-radius: 8px;
+      font-size: 14px; font-family: inherit; background: var(--bg);
     }
-    .remove-btn {
-      background: #fee;
-      color: #c33;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      margin-left: 12px;
+    .field input:focus, .field textarea:focus {
+      outline: none; border-color: var(--primary); background: var(--card);
     }
-    .remove-btn:hover {
-      background: #fdd;
+    .totals { margin: 16px 0; padding-top: 14px; border-top: 1px dashed var(--border); }
+    .trow { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 7px; }
+    .trow.grand {
+      font-size: 17px; font-weight: 800; color: var(--dark);
+      padding-top: 10px; margin-top: 4px; border-top: 1px solid var(--border);
     }
-    .vendor-group {
-      margin-bottom: 20px;
-      padding: 16px;
-      background: #f9f9f9;
-      border-radius: 6px;
-      border-left: 4px solid #4a90d9;
+    .place-btn {
+      width: 100%; padding: 14px;
+      background: var(--primary); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 700; font-family: inherit;
+      cursor: pointer; transition: background 0.15s;
     }
-    .vendor-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: #333;
-      margin-bottom: 12px;
+    .place-btn:hover { background: var(--primary-dark); }
+    .place-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .error-box {
+      background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+      padding: 11px 14px; border-radius: 8px; font-size: 13px;
+      margin-bottom: 14px; display: none;
     }
-    .vendor-subtotal {
-      text-align: right;
-      font-size: 14px;
-      color: #666;
-      padding-top: 12px;
-      border-top: 1px solid #ddd;
+
+    /* Empty & success states */
+    .state-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 56px 24px; text-align: center;
     }
-    .checkout-form {
-      display: grid;
-      gap: 12px;
+    .state-card .icon { font-size: 44px; margin-bottom: 12px; }
+    .state-card h2 { font-size: 20px; font-weight: 800; color: var(--dark); margin-bottom: 8px; }
+    .state-card p { font-size: 14px; color: var(--muted); margin-bottom: 20px; }
+    .btn-primary {
+      display: inline-block; background: var(--primary); color: #fff;
+      padding: 12px 24px; border-radius: 10px; text-decoration: none;
+      font-size: 14px; font-weight: 700;
     }
-    .form-group {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
+    .btn-primary:hover { background: var(--primary-dark); }
+    .order-line {
+      display: flex; justify-content: space-between; align-items: center;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 16px; margin: 0 auto 10px; max-width: 420px;
+      font-size: 13px; text-align: left;
     }
-    .form-group.full {
-      grid-column: 1 / -1;
-    }
-    input {
-      padding: 12px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    input:focus {
-      outline: none;
-      border-color: #4a90d9;
-      box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.1);
-    }
-    .summary {
-      background: #f9f9f9;
-      padding: 16px;
-      border-radius: 6px;
-      margin-top: 16px;
-    }
-    .summary-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 8px;
-      font-size: 14px;
-      color: #666;
-    }
-    .summary-row.total {
-      border-top: 2px solid #ddd;
-      padding-top: 12px;
-      font-size: 16px;
-      font-weight: 700;
-      color: #333;
-    }
-    .checkout-btn {
-      width: 100%;
-      padding: 14px;
-      background: #4a90d9;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      margin-top: 20px;
-      transition: background 0.2s;
-    }
-    .checkout-btn:hover {
-      background: #357abd;
-    }
-    .checkout-btn:disabled {
-      background: #ccc;
-      cursor: not-allowed;
-    }
-    .empty-cart {
-      text-align: center;
-      padding: 40px 20px;
-      color: #999;
-    }
-    .empty-cart a {
-      color: #4a90d9;
-      text-decoration: none;
-      margin-top: 20px;
-      display: inline-block;
-    }
-    .error {
-      background: #fee;
-      color: #c33;
-      padding: 12px;
-      border-radius: 4px;
-      margin-bottom: 20px;
-      display: none;
+    .order-line b { color: var(--dark); font-size: 13px; }
+
+    @media (max-width: 820px) {
+      .layout { grid-template-columns: 1fr; }
+      .summary-card { position: static; }
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <a href="index.html">← Back to Shopping</a>
-  </div>
-
-  <div class="container">
-    <h1>🛒 Shopping Cart</h1>
-
-    <div id="error" class="error"></div>
-
-    <div id="cartContent">
-      <!-- Cart items will be populated here -->
+  <header class="header">
+    <div class="header-inner">
+      <a class="brand" href="/">Rajkot<span>Market</span></a>
+      <a class="link" href="/">← Continue shopping</a>
     </div>
+  </header>
 
-    <div id="checkoutSection" style="display:none;">
-      <div class="cart-section">
-        <div class="section-title">Delivery Details</div>
-        <form id="checkoutForm" onsubmit="handleCheckout(event)" class="checkout-form">
-          <div class="form-group">
-            <input type="text" placeholder="Your Name" id="customerName" required>
-            <input type="tel" placeholder="Phone Number" id="customerPhone" required>
-          </div>
-          <input type="email" placeholder="Email Address" id="customerEmail" class="form-group full" required>
-          <input type="text" placeholder="Delivery Address" id="customerAddress" class="form-group full" required>
-
-          <div class="summary">
-            <div class="summary-row">
-              <span>Subtotal:</span>
-              <span>₹<span id="subtotal">0</span></span>
-            </div>
-            <div class="summary-row">
-              <span>Delivery Fee:</span>
-              <span>₹<span id="deliveryFee">30</span> per vendor</span>
-            </div>
-            <div class="summary-row total">
-              <span>Total:</span>
-              <span>₹<span id="total">0</span></span>
-            </div>
-          </div>
-
-          <button type="submit" class="checkout-btn" id="checkoutBtn">Place Order</button>
-        </form>
-      </div>
-    </div>
-  </div>
+  <main class="container">
+    <h1>Your Cart</h1>
+    <div id="view"></div>
+  </main>
 
   <script>
-    const API_URL = '';
-    let cart = JSON.parse(localStorage.getItem('cart')) || [];
+    const DELIVERY_FEE = 30;
+    let cart = JSON.parse(localStorage.getItem('cart') || '[]');
+    const view = document.getElementById('view');
 
-    function groupByVendor() {
-      const groups = {};
-      for (const item of cart) {
-        const vendorId = item.vendor_id || 'default';
-        if (!groups[vendorId]) groups[vendorId] = [];
-        groups[vendorId].push(item);
-      }
-      return groups;
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const inr = n => '₹' + Number(n).toLocaleString('en-IN');
+
+    function groups() {
+      const g = {};
+      cart.forEach((item, idx) => {
+        const key = item.vendor_id || 'default';
+        if (!g[key]) g[key] = { name: item.vendor_name || 'Local Vendor', items: [] };
+        g[key].items.push({ ...item, idx });
+      });
+      return g;
     }
 
-    function renderCart() {
-      const container = document.getElementById('cartContent');
-
+    function render() {
       if (!cart.length) {
-        container.innerHTML = '<div class="empty-cart">Your cart is empty.<br><a href="index.html">Continue Shopping</a></div>';
-        document.getElementById('checkoutSection').style.display = 'none';
+        view.innerHTML = `
+          <div class="state-card">
+            <div class="icon">🛒</div>
+            <h2>Your cart is empty</h2>
+            <p>Browse Rajkot's local vendors and add something tasty.</p>
+            <a class="btn-primary" href="/">Browse Vendors</a>
+          </div>`;
         return;
       }
 
-      const groups = groupByVendor();
-      let html = '<div class="cart-section">';
-      let totalAmount = 0;
+      const g = groups();
+      const vendorCount = Object.keys(g).length;
+      const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+      const delivery = vendorCount * DELIVERY_FEE;
 
-      for (const [vendorId, items] of Object.entries(groups)) {
-        const vendorName = vendorId === 'default' ? 'General' : 'Vendor';
-        let subtotal = 0;
-
-        html += `<div class="vendor-group">
-          <div class="vendor-name">${vendorName}</div>`;
-
-        for (const item of items) {
-          const itemTotal = item.price * item.quantity;
-          subtotal += itemTotal;
-          html += `
-            <div class="cart-item">
-              <div class="item-details">
-                <div class="item-name">${item.name}</div>
-                <div class="item-price">₹${item.price} each</div>
+      const groupsHtml = Object.entries(g).map(([vid, grp]) => {
+        const gSub = grp.items.reduce((s, i) => s + i.price * i.quantity, 0);
+        return `
+          <div class="vendor-group">
+            <div class="vendor-head">
+              <div class="vendor-chip">${esc(grp.name[0])}</div>
+              <div>
+                <div class="vendor-title">${esc(grp.name)}</div>
+                <div class="vendor-sub">${grp.items.length} item${grp.items.length > 1 ? 's' : ''} · delivered separately</div>
               </div>
-              <div class="item-quantity">
-                <button type="button" class="quantity-btn" onclick="updateQuantity('${item.id}', '${item.vendor_id}', -1)">−</button>
-                <span>${item.quantity}</span>
-                <button type="button" class="quantity-btn" onclick="updateQuantity('${item.id}', '${item.vendor_id}', 1)">+</button>
-              </div>
-              <div class="item-total">₹${itemTotal}</div>
-              <button type="button" class="remove-btn" onclick="removeItem('${item.id}', '${item.vendor_id}')">Remove</button>
             </div>
-          `;
-        }
+            ${grp.items.map(i => `
+              <div class="cart-item">
+                <div class="item-info">
+                  <div class="item-name">${esc(i.name)}</div>
+                  <div class="item-unit">${inr(i.price)} each</div>
+                </div>
+                <div class="stepper">
+                  <button type="button" data-dec="${i.idx}" aria-label="Decrease">−</button>
+                  <span class="qty">${i.quantity}</span>
+                  <button type="button" data-inc="${i.idx}" aria-label="Increase">+</button>
+                </div>
+                <div class="item-total">${inr(i.price * i.quantity)}</div>
+                <button type="button" class="remove" data-del="${i.idx}" aria-label="Remove">✕</button>
+              </div>
+            `).join('')}
+            <div class="group-total">Subtotal ${inr(gSub)} + ${inr(DELIVERY_FEE)} delivery = <b>${inr(gSub + DELIVERY_FEE)}</b></div>
+          </div>`;
+      }).join('');
 
-        html += `
-          <div class="vendor-subtotal">Subtotal: ₹${subtotal} + ₹30 delivery = ₹${subtotal + 30}</div>
+      view.innerHTML = `
+        <div class="layout">
+          <div class="card">${groupsHtml}</div>
+          <div class="card summary-card">
+            <h2>Delivery Details</h2>
+            <div class="error-box" id="errorBox"></div>
+            <form id="checkoutForm" novalidate>
+              <div class="field">
+                <label for="cName">Full name</label>
+                <input id="cName" type="text" autocomplete="name" required>
+              </div>
+              <div class="field">
+                <label for="cPhone">Phone</label>
+                <input id="cPhone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="10-digit mobile" required>
+              </div>
+              <div class="field">
+                <label for="cEmail">Email</label>
+                <input id="cEmail" type="email" autocomplete="email" required>
+              </div>
+              <div class="field">
+                <label for="cAddress">Delivery address</label>
+                <textarea id="cAddress" rows="2" autocomplete="street-address" required></textarea>
+              </div>
+              <div class="totals">
+                <div class="trow"><span>Items subtotal</span><span>${inr(subtotal)}</span></div>
+                <div class="trow"><span>Delivery (${vendorCount} vendor${vendorCount > 1 ? 's' : ''} × ${inr(DELIVERY_FEE)})</span><span>${inr(delivery)}</span></div>
+                <div class="trow grand"><span>Total</span><span>${inr(subtotal + delivery)}</span></div>
+              </div>
+              <button type="submit" class="place-btn" id="placeBtn">Place Order · ${inr(subtotal + delivery)}</button>
+            </form>
+          </div>
         </div>`;
 
-        totalAmount += subtotal + 30;
-      }
-
-      html += '</div>';
-      container.innerHTML = html;
-
-      document.getElementById('subtotal').textContent = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-      document.getElementById('total').textContent = totalAmount;
-      document.getElementById('checkoutSection').style.display = 'block';
+      document.getElementById('checkoutForm').addEventListener('submit', placeOrder);
     }
 
-    function updateQuantity(productId, vendorId, change) {
-      const item = cart.find(i => i.id === productId && i.vendor_id === vendorId);
-      if (item) {
-        item.quantity += change;
-        if (item.quantity <= 0) {
-          removeItem(productId, vendorId);
-        } else {
-          localStorage.setItem('cart', JSON.stringify(cart));
-          renderCart();
-        }
+    view.addEventListener('click', e => {
+      const inc = e.target.closest('[data-inc]');
+      const dec = e.target.closest('[data-dec]');
+      const del = e.target.closest('[data-del]');
+      if (inc) { cart[+inc.dataset.inc].quantity++; save(); }
+      else if (dec) {
+        const i = +dec.dataset.dec;
+        cart[i].quantity--;
+        if (cart[i].quantity <= 0) cart.splice(i, 1);
+        save();
       }
-    }
+      else if (del) { cart.splice(+del.dataset.del, 1); save(); }
+    });
 
-    function removeItem(productId, vendorId) {
-      cart = cart.filter(i => !(i.id === productId && i.vendor_id === vendorId));
+    function save() {
       localStorage.setItem('cart', JSON.stringify(cart));
-      renderCart();
+      render();
     }
 
-    async function handleCheckout(event) {
-      event.preventDefault();
+    function showError(msg) {
+      const box = document.getElementById('errorBox');
+      box.textContent = msg;
+      box.style.display = 'block';
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
 
-      const name = document.getElementById('customerName').value;
-      const phone = document.getElementById('customerPhone').value;
-      const email = document.getElementById('customerEmail').value;
-      const address = document.getElementById('customerAddress').value;
-      const btn = document.getElementById('checkoutBtn');
-      const errorDiv = document.getElementById('error');
+    async function placeOrder(e) {
+      e.preventDefault();
+      const name = document.getElementById('cName').value.trim();
+      const phone = document.getElementById('cPhone').value.trim();
+      const email = document.getElementById('cEmail').value.trim();
+      const address = document.getElementById('cAddress').value.trim();
 
+      if (!name || !phone || !email || !address) return showError('Please fill in all the delivery details.');
+      if (!/^\d{10}$/.test(phone.replace(/\D/g, '').slice(-10))) return showError('Please enter a valid 10-digit phone number.');
+      if (!/^\S+@\S+\.\S+$/.test(email)) return showError('Please enter a valid email address.');
+
+      const btn = document.getElementById('placeBtn');
       btn.disabled = true;
-      btn.textContent = 'Processing...';
+      btn.textContent = 'Placing your order…';
 
       try {
-        const res = await fetch(`${API_URL}/api/orders`, {
+        const res = await fetch('/api/orders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'place',
-            items: cart,
-            customer: { name, phone, email, address }
-          })
+          body: JSON.stringify({ action: 'place', items: cart, customer: { name, phone, email, address } })
         });
-
         const data = await res.json();
-
-        if (!res.ok) throw new Error(data.error || 'Checkout failed');
+        if (!res.ok) throw new Error(data.error || 'Could not place the order. Please try again.');
 
         localStorage.removeItem('cart');
-        alert('Order placed successfully! Check your email for confirmation.');
-        window.location.href = 'index.html';
-      } catch (e) {
-        errorDiv.textContent = e.message;
-        errorDiv.style.display = 'block';
+        renderSuccess(data.orders || [], phone);
+      } catch (err) {
+        showError(err.message);
         btn.disabled = false;
         btn.textContent = 'Place Order';
       }
     }
 
-    renderCart();
+    function renderSuccess(orders, phone) {
+      const esc2 = esc;
+      view.innerHTML = `
+        <div class="state-card">
+          <div class="icon">🎉</div>
+          <h2>Order placed!</h2>
+          <p>A confirmation has been sent to your email. Save your order ID${orders.length > 1 ? 's' : ''} to track delivery.</p>
+          ${orders.map(o => `
+            <div class="order-line">
+              <span><b>${esc2(o.order_id)}</b></span>
+              <span>${inr(o.total)}</span>
+            </div>`).join('')}
+          <p style="margin-top:8px">
+            <a class="btn-primary" href="track.html${orders.length ? '?orderId=' + encodeURIComponent(orders[0].order_id) + '&phone=' + encodeURIComponent(phone) : ''}">Track Order</a>
+          </p>
+          <p style="margin-top:14px"><a href="/" style="color:var(--muted)">← Back to shopping</a></p>
+        </div>`;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    render();
   </script>
 </body>
 </html>
