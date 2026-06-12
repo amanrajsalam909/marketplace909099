@@ -152,6 +152,7 @@
     .pill.preparing { background: #ffedd5; color: #9a3412; }
     .pill.ready     { background: #e0e7ff; color: #3730a3; }
     .pill.delivered { background: #d1fae5; color: #065f46; }
+    .pill.cancelled { background: #fee2e2; color: #991b1b; }
 
     .state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 14px; }
 
@@ -249,10 +250,12 @@
 
     <!-- ORDERS -->
     <section class="panel" id="panel-orders">
-      <div class="card">
-        <h3>Recent orders (all vendors)</h3>
-        <div class="table-wrap" id="ordersTable"><div class="state">Loading orders…</div></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <label style="margin:0;white-space:nowrap">Shop</label>
+        <select id="ordVendorFilter" style="max-width:280px"><option value="">All shops</option></select>
+        <span style="font-size:12px;color:var(--muted)" id="ordSummary"></span>
       </div>
+      <div id="ordersTable"><div class="state">Loading orders…</div></div>
     </section>
 
     <!-- PAYMENTS -->
@@ -621,35 +624,80 @@
       } catch (err) { toast(err.message); }
     });
 
-    /* ---------- Orders ---------- */
+    /* ---------- Orders (grouped per shop) ---------- */
+    let adminOrders = [];
+
     async function loadOrders() {
       try {
-        const orders = await apiGet('orders');
-        const el = document.getElementById('ordersTable');
-        if (!orders.length) {
-          el.innerHTML = '<div class="state">No orders yet.</div>';
-          return;
-        }
-        const vendorName = id => (vendors.find(v => v.id === id) || {}).name || '—';
-        el.innerHTML = `
-          <table>
-            <thead><tr><th>Order</th><th>Vendor</th><th>Customer</th><th>Total</th><th>Status</th><th>When</th></tr></thead>
-            <tbody>
-              ${orders.map(o => `
-                <tr>
-                  <td><b>${esc(o.order_id)}</b></td>
-                  <td>${esc(vendorName(o.vendor_id))}</td>
-                  <td>${esc(o.customer_name)}<br><span style="color:var(--muted);font-size:11px">${esc(o.customer_phone)}</span></td>
-                  <td><b>${inr(o.total)}</b></td>
-                  <td><span class="pill ${esc(o.status)}">${esc(o.status)}</span></td>
-                  <td>${o.created_at ? new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>`;
+        adminOrders = await apiGet('orders');
+        const sel = document.getElementById('ordVendorFilter');
+        const current = sel.value;
+        sel.innerHTML = '<option value="">All shops</option>'
+          + vendors.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('');
+        sel.value = current;
+        renderOrders();
       } catch (e) {
         document.getElementById('ordersTable').innerHTML = `<div class="state">${esc(e.message)}</div>`;
       }
     }
+
+    function renderOrders() {
+      const el = document.getElementById('ordersTable');
+      const filter = document.getElementById('ordVendorFilter').value;
+      const list = filter ? adminOrders.filter(o => o.vendor_id === filter) : adminOrders;
+
+      document.getElementById('ordSummary').textContent = adminOrders.length
+        ? `showing ${list.length} of the last ${adminOrders.length} orders` : '';
+
+      if (!list.length) {
+        el.innerHTML = `<div class="state">No orders ${filter ? 'for this shop ' : ''}yet.</div>`;
+        return;
+      }
+
+      // Group per shop, newest order first inside each group; groups ordered
+      // by their most recent order (API already sorts newest first)
+      const groups = [];
+      const byVendor = {};
+      list.forEach(o => {
+        if (!byVendor[o.vendor_id]) {
+          byVendor[o.vendor_id] = { vendor_id: o.vendor_id, orders: [] };
+          groups.push(byVendor[o.vendor_id]);
+        }
+        byVendor[o.vendor_id].orders.push(o);
+      });
+
+      const vendorName = id => (vendors.find(v => v.id === id) || {}).name || 'Unknown shop';
+      el.innerHTML = groups.map(grp => {
+        const value = grp.orders.reduce((s, o) => s + Number(o.total), 0);
+        const pending = grp.orders.filter(o => o.status === 'pending').length;
+        return `
+        <div class="card">
+          <h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span class="row-icon" style="width:30px;height:30px;font-size:14px">${esc(vendorName(grp.vendor_id)[0])}</span>
+            ${esc(vendorName(grp.vendor_id))}
+            <span style="font-size:12px;font-weight:600;color:var(--muted)">${grp.orders.length} order${grp.orders.length > 1 ? 's' : ''} · ${inr(value)}${pending ? ` · <b style="color:var(--amber)">${pending} pending</b>` : ''}</span>
+          </h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th><th>When</th></tr></thead>
+              <tbody>
+                ${grp.orders.map(o => `
+                  <tr>
+                    <td><b>${esc(o.order_id)}</b></td>
+                    <td>${esc(o.customer_name)}<br><span style="color:var(--muted);font-size:11px">${esc(o.customer_phone)}</span></td>
+                    <td><b>${inr(o.total)}</b></td>
+                    <td>${esc(o.payment_method)}<br><span style="color:var(--muted);font-size:11px">${esc(o.payment_status || '')}</span></td>
+                    <td><span class="pill ${esc(o.status)}">${esc(o.status)}</span></td>
+                    <td>${o.created_at ? new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    document.getElementById('ordVendorFilter').addEventListener('change', renderOrders);
 
     /* ---------- Payments ---------- */
     async function loadPayments() {
