@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
 
         const { data } = await supabase
           .from('orders')
-          .select('order_id, status, total, payment_method, payment_status, created_at')
+          .select('order_id, status, subtotal, delivery_fee, discount_amount, offer_name, total, payment_method, payment_status, items_json, created_at, vendors(name)')
           .eq('customer_phone', session.phone)
           .order('created_at', { ascending: false })
           .limit(50);

@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Account — Rajkot Market</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #e85d04;
+      --primary-dark: #c44e03;
+      --primary-light: #fff1e6;
+      --dark: #1e293b;
+      --text: #334155;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+      --green: #059669;
+      --amber: #d97706;
+      --red: #dc2626;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg); color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .header {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--card); border-bottom: 1px solid var(--border);
+    }
+    .header-inner {
+      max-width: 900px; margin: 0 auto; padding: 14px 20px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .brand { font-size: 20px; font-weight: 800; color: var(--dark); text-decoration: none; letter-spacing: -0.5px; }
+    .brand span { color: var(--primary); }
+    .header a.link { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; }
+    .header a.link:hover { color: var(--primary); }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 24px 20px 60px; }
+
+    /* Profile header */
+    .profile-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      padding: 22px; margin-bottom: 20px;
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    .avatar {
+      width: 64px; height: 64px; border-radius: 50%; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--primary), #fb923c);
+      color: #fff; font-size: 26px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pinfo { flex: 1; min-width: 200px; }
+    .pname { font-size: 20px; font-weight: 800; color: var(--dark); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .pname .edit-link {
+      font-size: 12px; font-weight: 600; color: var(--primary);
+      background: none; border: none; cursor: pointer; font-family: inherit; padding: 0;
+    }
+    .pmeta { font-size: 13px; color: var(--muted); margin-top: 4px; display: flex; gap: 14px; flex-wrap: wrap; }
+    .name-edit { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .name-edit input {
+      padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 14px; font-family: inherit;
+    }
+    .signout-btn {
+      background: var(--card); color: var(--muted);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 9px 16px; font-size: 13px; font-weight: 600;
+      font-family: inherit; cursor: pointer;
+    }
+    .signout-btn:hover { border-color: var(--red); color: var(--red); }
+
+    /* Tabs */
+    .tabs {
+      display: flex; gap: 4px; margin-bottom: 18px;
+      background: #eef2f7; padding: 4px; border-radius: 10px; width: fit-content;
+    }
+    .tab {
+      padding: 8px 20px; border: none; background: transparent;
+      font-size: 14px; font-weight: 600; color: var(--muted);
+      border-radius: 8px; cursor: pointer; font-family: inherit;
+    }
+    .tab.active { background: var(--card); color: var(--dark); box-shadow: var(--shadow); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Order cards */
+    .order-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px;
+      box-shadow: var(--shadow);
+    }
+    .order-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .order-id { font-size: 14px; font-weight: 800; color: var(--dark); }
+    .order-shop { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .pill {
+      padding: 4px 11px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+    }
+    .pill.pending   { background: #fef3c7; color: #92400e; }
+    .pill.confirmed { background: #dbeafe; color: #1e40af; }
+    .pill.preparing { background: #ffedd5; color: #9a3412; }
+    .pill.ready     { background: #e0e7ff; color: #3730a3; }
+    .pill.delivered { background: #d1fae5; color: #065f46; }
+    .pill.cancelled { background: #fee2e2; color: #991b1b; }
+    .order-items { font-size: 13px; color: var(--text); margin: 10px 0; line-height: 1.6; }
+    .order-foot {
+      display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+      border-top: 1px solid #f1f5f9; padding-top: 10px;
+    }
+    .order-when { font-size: 12px; color: var(--muted); }
+    .order-total { font-size: 15px; font-weight: 800; color: var(--dark); }
+    .order-links { display: flex; gap: 14px; }
+    .order-links a { font-size: 12px; font-weight: 600; text-decoration: none; color: var(--primary); }
+    .order-links a.danger { color: var(--red); }
+    .saved-line { font-size: 12px; color: #047857; font-weight: 600; }
+
+    /* Addresses */
+    .addr-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px;
+      box-shadow: var(--shadow);
+    }
+    .addr-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .addr-label { font-size: 14px; font-weight: 800; color: var(--dark); }
+    .addr-actions { display: flex; gap: 8px; }
+    .abtn {
+      border: 1px solid var(--border); background: var(--card);
+      padding: 6px 12px; border-radius: 8px;
+      font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; color: var(--text);
+    }
+    .abtn:hover { border-color: var(--primary); color: var(--primary); }
+    .abtn.danger:hover { border-color: var(--red); color: var(--red); }
+    .addr-text { font-size: 13px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+    .addr-empty { font-size: 13px; color: #cbd5e1; margin-top: 8px; }
+
+    .addr-form {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; margin-bottom: 14px;
+      box-shadow: var(--shadow); display: none;
+    }
+    .addr-form.open { display: block; }
+    .addr-form h3 { font-size: 15px; font-weight: 700; color: var(--dark); margin-bottom: 14px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-grid .full { grid-column: 1 / -1; }
+    label {
+      display: block; font-size: 12px; font-weight: 600; color: var(--muted);
+      margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    input[type="text"] {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid var(--border); border-radius: 8px;
+      font-size: 14px; font-family: inherit; background: var(--bg);
+    }
+    input[type="text"]:focus { outline: none; border-color: var(--primary); background: var(--card); }
+    .btn-primary {
+      background: var(--primary); color: #fff; border: none;
+      padding: 10px 20px; border-radius: 8px;
+      font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer;
+    }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-primary:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .btn-ghost {
+      background: var(--card); color: var(--muted); border: 1px solid var(--border);
+      padding: 10px 16px; border-radius: 8px;
+      font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+    }
+    .form-err {
+      background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+      padding: 9px 12px; border-radius: 8px; font-size: 12px; margin-bottom: 12px; display: none;
+    }
+
+    .state { text-align: center; padding: 48px 20px; color: var(--muted); font-size: 14px; }
+    .state a { color: var(--primary); font-weight: 600; }
+
+    .toast {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--dark); color: #fff;
+      padding: 12px 22px; border-radius: 999px;
+      font-size: 14px; font-weight: 600;
+      transition: transform 0.25s ease; z-index: 200;
+      max-width: calc(100vw - 40px);
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 640px) {
+      .form-grid { grid-template-columns: 1fr; }
+      .profile-card { padding: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a class="brand" href="/">Rajkot<span>Market</span></a>
+      <div style="display:flex;gap:18px;align-items:center">
+        <a class="link" href="/">← Continue shopping</a>
+        <a class="link" href="cart.html">🛒 Cart</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="profile-card">
+      <div class="avatar" id="avatar">👤</div>
+      <div class="pinfo">
+        <div class="pname" id="pnameWrap">
+          <span id="pName">…</span>
+          <button class="edit-link" id="editNameBtn">✏️ Edit</button>
+        </div>
+        <div class="pmeta">
+          <span id="pPhone"></span>
+          <span id="pEmail"></span>
+        </div>
+      </div>
+      <button class="signout-btn" id="signOutBtn">Sign Out</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="orders">My Orders</button>
+      <button class="tab" data-tab="addresses">My Addresses</button>
+    </div>
+
+    <section class="panel active" id="panel-orders">
+      <div id="ordersList"><div class="state">Loading your orders…</div></div>
+    </section>
+
+    <section class="panel" id="panel-addresses">
+      <div class="addr-form" id="addrForm">
+        <h3 id="addrFormTitle">Add address</h3>
+        <div class="form-err" id="addrErr"></div>
+        <div class="form-grid">
+          <div><label for="adFlat">Flat / House No. *</label><input id="adFlat" type="text" placeholder="e.g. Flat 302 or House No. 12"></div>
+          <div><label for="adBldg">Building / Society name</label><input id="adBldg" type="text" placeholder="optional"></div>
+          <div><label for="adStreet">Street / Road / Lane</label><input id="adStreet" type="text" placeholder="optional"></div>
+          <div><label for="adArea">Area / Locality / Colony / Sector *</label><input id="adArea" type="text"></div>
+          <div><label for="adLandmark">Landmark</label><input id="adLandmark" type="text" placeholder="optional"></div>
+          <div class="full" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div><label for="adCity">City *</label><input id="adCity" type="text" value="Rajkot"></div>
+            <div><label for="adPin">PIN Code *</label><input id="adPin" type="text" inputmode="numeric" maxlength="6" placeholder="e.g. 360001"></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button class="btn-primary" id="adSaveBtn">Save Address</button>
+          <button class="btn-ghost" id="adCancelBtn">Cancel</button>
+        </div>
+      </div>
+      <div id="addrList"><div class="state">Loading your addresses…</div></div>
+      <p style="font-size:12px;color:var(--muted)">Saved addresses appear at checkout — tap one there to fill the delivery form instantly.</p>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let cust = JSON.parse(localStorage.getItem('custSession') || 'null');
+    if (!cust) location.href = '/';
+
+    const ADDR_LABELS = ['Home', 'Office', 'Other'];
+    const ADDR_ICONS = { Home: '🏠', Office: '🏢', Other: '📍' };
+    const STATUS_LABELS = { pending: 'Pending', confirmed: 'Confirmed', preparing: 'Preparing', ready: 'Out for Delivery', delivered: 'Delivered', cancelled: 'Cancelled' };
+
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const inr = n => '₹' + Number(n).toLocaleString('en-IN');
+
+    function toast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(el._t);
+      el._t = setTimeout(() => el.classList.remove('show'), 2400);
+    }
+
+    async function custApi(body) {
+      const res = await fetch('/api/customer-auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: cust.token, ...body })
+      });
+      const data = await res.json();
+      if (res.status === 401) { doSignOut(false); throw new Error('Session expired'); }
+      return { res, data };
+    }
+
+    function doSignOut(callServer = true) {
+      if (callServer) fetch('/api/customer-auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout', token: cust.token })
+      }).catch(() => {});
+      localStorage.removeItem('custSession');
+      location.href = '/';
+    }
+    document.getElementById('signOutBtn').addEventListener('click', () => doSignOut(true));
+
+    /* ---------- Profile header ---------- */
+    function renderProfile() {
+      const name = cust.name || 'Customer';
+      document.getElementById('pName').textContent = name;
+      document.getElementById('avatar').textContent = (name.trim()[0] || '👤').toUpperCase();
+      document.getElementById('pPhone').textContent = '📱 ' + (cust.phone || '');
+      document.getElementById('pEmail').textContent = '✉️ ' + (cust.email || '');
+    }
+
+    function showNameEditor() {
+      document.getElementById('pnameWrap').innerHTML = `
+        <span class="name-edit">
+          <input id="nameInput" type="text" maxlength="60" value="${esc(cust.name || '')}" placeholder="Your name">
+          <button class="btn-primary" id="nameSave" style="padding:8px 14px;font-size:12px">Save</button>
+          <button class="btn-ghost" id="nameCancel" style="padding:8px 12px;font-size:12px">Cancel</button>
+        </span>`;
+      document.getElementById('nameInput').focus();
+      document.getElementById('nameCancel').addEventListener('click', resetNameRow);
+      document.getElementById('nameSave').addEventListener('click', async () => {
+        const name = document.getElementById('nameInput').value.trim();
+        if (!name) return toast('Please enter your name.');
+        try {
+          const { res, data } = await custApi({ action: 'update-profile', name });
+          if (!res.ok) throw new Error(data.error || 'Could not update your name.');
+          cust.name = data.name;
+          localStorage.setItem('custSession', JSON.stringify(cust));
+          toast('Name updated');
+          resetNameRow();
+        } catch (e) { toast(e.message); }
+      });
+    }
+
+    function resetNameRow() {
+      document.getElementById('pnameWrap').innerHTML = `
+        <span id="pName"></span>
+        <button class="edit-link" id="editNameBtn">✏️ Edit</button>`;
+      renderProfile();
+      document.getElementById('editNameBtn').addEventListener('click', showNameEditor);
+    }
+
+    document.getElementById('editNameBtn').addEventListener('click', showNameEditor);
+
+    /* ---------- Orders ---------- */
+    async function loadOrders() {
+      const el = document.getElementById('ordersList');
+      try {
+        const res = await fetch('/api/orders?myOrders=1&token=' + encodeURIComponent(cust.token));
+        if (res.status === 401) return doSignOut(false);
+        const orders = await res.json();
+        if (!orders.length) {
+          el.innerHTML = '<div class="state">No orders yet — <a href="/">start shopping</a>!</div>';
+          return;
+        }
+        el.innerHTML = orders.map(o => {
+          const items = Array.isArray(o.items_json) ? o.items_json : [];
+          const itemsLine = items.map(i => esc(i.name) + ' × ' + i.quantity).join(' · ');
+          const canCancel = o.status === 'pending' && (Date.now() - new Date(o.created_at).getTime() < 10 * 60 * 1000);
+          return `
+          <div class="order-card">
+            <div class="order-top">
+              <div>
+                <div class="order-id">${esc(o.order_id)}</div>
+                <div class="order-shop">🏪 ${esc((o.vendors || {}).name || 'Shop')}</div>
+              </div>
+              <span class="pill ${esc(o.status)}">${STATUS_LABELS[o.status] || esc(o.status)}</span>
+            </div>
+            ${itemsLine ? `<div class="order-items">${itemsLine}</div>` : ''}
+            ${Number(o.discount_amount) > 0 ? `<div class="saved-line">🎉 ${esc(o.offer_name || 'Offer')} — you saved ${inr(o.discount_amount)}</div>` : ''}
+            <div class="order-foot">
+              <span class="order-when">${new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} · ${esc(o.payment_method)} · ${esc(o.payment_status || '')}</span>
+              <div style="display:flex;align-items:center;gap:16px">
+                <span class="order-total">${inr(o.total)}</span>
+                <div class="order-links">
+                  <a href="track.html?orderId=${encodeURIComponent(o.order_id)}&phone=${encodeURIComponent(cust.phone)}">Track</a>
+                  ${canCancel ? `<a href="#" class="danger" data-cancel="${esc(o.order_id)}">Cancel</a>` : ''}
+                </div>
+              </div>
+            </div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        el.innerHTML = '<div class="state">Could not load your orders. Refresh to retry.</div>';
+      }
+    }
+
+    document.getElementById('ordersList').addEventListener('click', async e => {
+      const c = e.target.closest('[data-cancel]');
+      if (!c) return;
+      e.preventDefault();
+      if (!confirm('Cancel this order?')) return;
+      try {
+        const res = await fetch('/api/orders', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'cancel', token: cust.token, orderId: c.dataset.cancel })
+        });
+        const d = await res.json();
+        if (!d.success) throw new Error(d.error || 'Could not cancel');
+        toast('Order cancelled');
+        loadOrders();
+      } catch (err) { toast(err.message); }
+    });
+
+    /* ---------- Addresses ---------- */
+    let book = {};
+    let editingLabel = null;
+    const composeAddr = a => [a.flat, a.building, a.street, a.area,
+      a.landmark ? 'Near ' + a.landmark : '',
+      (a.city || '') + (a.pin ? ' - ' + a.pin : '')].filter(Boolean).join(', ');
+
+    async function loadAddresses() {
+      const el = document.getElementById('addrList');
+      try {
+        const { res, data } = await custApi({ action: 'get-addresses' });
+        if (!res.ok) throw new Error(data.error || 'Could not load addresses.');
+        book = data.addresses || {};
+        localStorage.setItem('addressBook', JSON.stringify(book));
+        renderAddresses();
+      } catch (e) {
+        el.innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    function renderAddresses() {
+      document.getElementById('addrList').innerHTML = ADDR_LABELS.map(l => {
+        const a = book[l];
+        return `
+        <div class="addr-card">
+          <div class="addr-top">
+            <div class="addr-label">${ADDR_ICONS[l]} ${l}</div>
+            <div class="addr-actions">
+              <button class="abtn" data-addr-edit="${l}">${a ? 'Edit' : '＋ Add'}</button>
+              ${a ? `<button class="abtn danger" data-addr-del="${l}">Delete</button>` : ''}
+            </div>
+          </div>
+          ${a ? `<div class="addr-text">${esc(composeAddr(a))}</div>` : '<div class="addr-empty">Not saved yet</div>'}
+        </div>`;
+      }).join('');
+    }
+
+    document.getElementById('addrList').addEventListener('click', async e => {
+      const edit = e.target.closest('[data-addr-edit]');
+      const del = e.target.closest('[data-addr-del]');
+      if (edit) {
+        editingLabel = edit.dataset.addrEdit;
+        const a = book[editingLabel] || {};
+        document.getElementById('addrFormTitle').textContent =
+          (a.flat ? 'Edit ' : 'Add ') + editingLabel + ' address';
+        document.getElementById('adFlat').value = a.flat || '';
+        document.getElementById('adBldg').value = a.building || '';
+        document.getElementById('adStreet').value = a.street || '';
+        document.getElementById('adArea').value = a.area || '';
+        document.getElementById('adLandmark').value = a.landmark || '';
+        document.getElementById('adCity').value = a.city || 'Rajkot';
+        document.getElementById('adPin').value = a.pin || '';
+        document.getElementById('addrErr').style.display = 'none';
+        document.getElementById('addrForm').classList.add('open');
+        document.getElementById('adFlat').focus();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+      if (del) {
+        const l = del.dataset.addrDel;
+        if (!confirm('Delete your saved ' + l + ' address?')) return;
+        try {
+          const { res, data } = await custApi({ action: 'delete-address', label: l });
+          if (!res.ok) throw new Error(data.error || 'Could not delete.');
+          book = data.addresses || {};
+          localStorage.setItem('addressBook', JSON.stringify(book));
+          toast(l + ' address deleted');
+          renderAddresses();
+        } catch (err) { toast(err.message); }
+      }
+    });
+
+    document.getElementById('adPin').addEventListener('input', e => {
+      e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+    });
+    document.getElementById('adCancelBtn').addEventListener('click', () => {
+      document.getElementById('addrForm').classList.remove('open');
+      editingLabel = null;
+    });
+
+    document.getElementById('adSaveBtn').addEventListener('click', async () => {
+      const v = id => document.getElementById(id).value.trim();
+      const parts = {
+        flat: v('adFlat'), building: v('adBldg'), street: v('adStreet'),
+        area: v('adArea'), landmark: v('adLandmark'), city: v('adCity'), pin: v('adPin')
+      };
+      const err = !parts.flat || !parts.area || !parts.city
+        ? 'Please fill in flat/house number, area and city.'
+        : !/^[1-9]\d{5}$/.test(parts.pin) ? 'Please enter a valid 6-digit PIN code.' : '';
+      const errBox = document.getElementById('addrErr');
+      if (err) { errBox.textContent = err; errBox.style.display = 'block'; return; }
+
+      const btn = document.getElementById('adSaveBtn');
+      btn.disabled = true;
+      try {
+        const { res, data } = await custApi({ action: 'save-address', label: editingLabel, address: parts });
+        if (!res.ok) throw new Error(data.error || 'Could not save the address.');
+        book = data.addresses || {};
+        localStorage.setItem('addressBook', JSON.stringify(book));
+        toast(editingLabel + ' address saved');
+        document.getElementById('addrForm').classList.remove('open');
+        renderAddresses();
+      } catch (e) {
+        errBox.textContent = e.message;
+        errBox.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    /* ---------- Tabs ---------- */
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+        if (tab.dataset.tab === 'addresses') loadAddresses();
+      });
+    });
+
+    /* ---------- Boot: confirm the session is still valid ---------- */
+    renderProfile();
+    fetch('/api/customer-auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'validate', token: cust.token })
+    }).then(r => r.json()).then(d => {
+      if (!d.valid) return doSignOut(false);
+      if (d.name && d.name !== cust.name) {
+        cust.name = d.name;
+        localStorage.setItem('custSession', JSON.stringify(cust));
+        renderProfile();
+      }
+    }).catch(() => {});
+    loadOrders();
+  </script>
+</body>
+</html>

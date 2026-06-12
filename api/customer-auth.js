@@ -113,6 +113,16 @@ module.exports = async (req, res) => {
       return res.json({ valid: !!session, ...(session || {}) });
     }
 
+    if (action === 'update-profile') {
+      const session = await validateCustomerSession(token);
+      if (!session) return res.status(401).json({ error: 'Session expired — please sign in again.' });
+      const name = String(req.body.name || '').trim().slice(0, 60);
+      if (!name) return res.status(400).json({ error: 'Please enter your name.' });
+      await supabase.from('customer_sessions').update({ name }).eq('token', token);
+      await supabase.from('customers').update({ name }).eq('phone', session.phone);
+      return res.json({ success: true, name });
+    }
+
     // ----- Address book: Home / Office / Other slots on the customer row -----
     if (action === 'get-addresses') {
       const session = await validateCustomerSession(token);
