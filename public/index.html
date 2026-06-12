@@ -414,8 +414,8 @@
 
   <main class="container">
     <div class="cat-chips" id="catChips"></div>
-    <div class="section-head">
-      <h2 class="section-title" id="sectionTitle">Shops in Rajkot</h2>
+    <div class="section-head" style="display:none">
+      <h2 class="section-title" id="sectionTitle"></h2>
       <button class="back-btn" id="backBtn">← All Shops</button>
     </div>
     <div id="content">
@@ -545,7 +545,8 @@
       const catName = state.categoryFilter
         ? (state.categories.find(c => c.id === state.categoryFilter) || {}).name
         : null;
-      sectionTitle.textContent = catName || 'Shops in Rajkot';
+      // No heading on the shop list — the title only appears inside a shop
+      document.querySelector('.section-head').style.display = 'none';
       backBtn.style.display = 'none';
       document.getElementById('catChips').style.display =
         state.categories.some(c => state.vendors.some(v => v.category_id === c.id)) ? 'flex' : 'none';
@@ -576,6 +577,7 @@
       state.currentVendor = state.vendors.find(v => v.id === vendorId) || null;
       if (!state.currentVendor) return;
 
+      document.querySelector('.section-head').style.display = 'flex';
       sectionTitle.textContent = state.currentVendor.name;
       backBtn.style.display = 'inline-flex';
       document.getElementById('catChips').style.display = 'none';
