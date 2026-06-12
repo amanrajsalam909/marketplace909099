@@ -107,7 +107,7 @@ module.exports = async (req, res) => {
             address: vendor.address || '',
             description: vendor.description || '',
             category_id: vendor.category_id || null,
-            commission_percent: Number(vendor.commission_percent) || 15,
+            commission_percent: Number(vendor.commission_percent) || 14,
             is_active: true
           })
           .select('id')

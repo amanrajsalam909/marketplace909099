@@ -223,7 +223,7 @@
             <div><label>Login password *</label><input id="vPassword" type="text" minlength="6" placeholder="min 6 characters" required></div>
             <div><label>Phone</label><input id="vPhone" type="tel"></div>
             <div><label>Category</label><select id="vCategory"><option value="">— None —</option></select></div>
-            <div><label>Commission %</label><input id="vCommission" type="number" min="0" max="50" step="0.5" value="15"></div>
+            <div><label>Commission %</label><input id="vCommission" type="number" min="0" max="50" step="0.5" value="14"></div>
             <div class="full"><label>Address</label><input id="vAddress" type="text"></div>
             <div class="full"><label>Description</label><textarea id="vDesc" rows="2"></textarea></div>
           </div>
@@ -528,7 +528,7 @@
         });
         toast('Vendor created — share the login details with them');
         e.target.reset();
-        document.getElementById('vCommission').value = 15;
+        document.getElementById('vCommission').value = 14;
         loadVendors();
         loadStats();
       } catch (err) { toast(err.message); }
