@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rajkot Market — Order from Local Vendors</title>
-  <meta name="description" content="Rajkot's local marketplace. Order food and more from trusted local vendors, delivered to your door.">
+  <title>RajkotMarket — Shop Local, Delivered Fast</title>
+  <meta name="description" content="Rajkot's local marketplace. Food, electronics, fashion, grocery and more — delivered to your door.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
@@ -120,26 +120,6 @@
       align-items: center;
       justify-content: center;
       padding: 0 5px;
-    }
-
-    /* Hero */
-    .hero {
-      background: linear-gradient(120deg, #7c2d12 0%, #c2410c 55%, #ea580c 100%);
-      color: #fff;
-      padding: 48px 20px 56px;
-      text-align: center;
-    }
-    .hero h1 {
-      font-size: clamp(26px, 5vw, 40px);
-      font-weight: 800;
-      letter-spacing: -1px;
-      margin-bottom: 10px;
-    }
-    .hero p {
-      font-size: clamp(14px, 2.5vw, 17px);
-      opacity: 0.9;
-      max-width: 520px;
-      margin: 0 auto;
     }
 
     /* Layout */
@@ -400,7 +380,7 @@
     <div class="header-inner">
       <a class="brand" href="/">Rajkot<span>Market</span></a>
       <div class="search-box">
-        <input type="search" id="searchInput" placeholder="Search vendors or dishes…" autocomplete="off">
+        <input type="search" id="searchInput" placeholder="Search shops or products…" autocomplete="off">
       </div>
       <div class="header-actions">
         <a class="btn btn-ghost" href="track.html">Track Order</a>
@@ -410,16 +390,11 @@
     </div>
   </header>
 
-  <section class="hero" id="hero">
-    <h1>Everything local, delivered fast.</h1>
-    <p>Food, electronics, fashion, grocery and more — shop directly from Rajkot's trusted local vendors.</p>
-  </section>
-
   <main class="container">
     <div class="cat-chips" id="catChips"></div>
     <div class="section-head">
-      <h2 class="section-title" id="sectionTitle">Browse Vendors</h2>
-      <button class="back-btn" id="backBtn">← All Vendors</button>
+      <h2 class="section-title" id="sectionTitle">Shops in Rajkot</h2>
+      <button class="back-btn" id="backBtn">← All Shops</button>
     </div>
     <div id="content">
       <div class="skeleton-grid">
@@ -433,7 +408,7 @@
       <div>© 2026 RajkotMarket — supporting local businesses in Rajkot.</div>
       <div>
         <a href="track.html">Track Order</a>
-        <a href="vendor-login.html">Vendor Login</a>
+        <a href="vendor-login.html">Sell on RajkotMarket</a>
       </div>
     </div>
   </footer>
@@ -494,7 +469,7 @@
         renderCategoryChips();
         renderVendors();
       } catch (e) {
-        content.innerHTML = '<div class="state">Could not load vendors. Please refresh the page.</div>';
+        content.innerHTML = '<div class="state">Could not load shops. Please refresh the page.</div>';
       }
     }
 
@@ -527,12 +502,12 @@
       const catName = state.categoryFilter
         ? (state.categories.find(c => c.id === state.categoryFilter) || {}).name
         : null;
-      sectionTitle.textContent = catName ? catName + ' Vendors' : 'Browse Vendors';
+      sectionTitle.textContent = catName || 'Shops in Rajkot';
       backBtn.style.display = 'none';
       document.getElementById('catChips').style.display = state.categories.length ? 'flex' : 'none';
 
       if (!list.length) {
-        content.innerHTML = '<div class="state">No vendors found' + (q ? ' for "' + esc(q) + '"' : (catName ? ' in ' + esc(catName) + ' yet — check back soon!' : ' yet — check back soon!')) + '</div>';
+        content.innerHTML = '<div class="state">No shops found' + (q ? ' for "' + esc(q) + '"' : (catName ? ' in ' + esc(catName) + ' yet — check back soon!' : ' yet — check back soon!')) + '</div>';
         return;
       }
 
@@ -574,7 +549,7 @@
       const list = state.products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q));
 
       if (!list.length) {
-        content.innerHTML = '<div class="state">No items found' + (q ? ' for "' + esc(q) + '"' : ' from this vendor yet.') + '</div>';
+        content.innerHTML = '<div class="state">No items found' + (q ? ' for "' + esc(q) + '"' : ' from this shop yet.') + '</div>';
         return;
       }
 

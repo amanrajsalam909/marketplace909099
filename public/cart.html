@@ -191,7 +191,7 @@
       const g = {};
       cart.forEach((item, idx) => {
         const key = item.vendor_id || 'default';
-        if (!g[key]) g[key] = { name: item.vendor_name || 'Local Vendor', items: [] };
+        if (!g[key]) g[key] = { name: item.vendor_name || 'Local Shop', items: [] };
         g[key].items.push({ ...item, idx });
       });
       return g;
@@ -203,8 +203,8 @@
           <div class="state-card">
             <div class="icon">🛒</div>
             <h2>Your cart is empty</h2>
-            <p>Browse Rajkot's local vendors and add something tasty.</p>
-            <a class="btn-primary" href="/">Browse Vendors</a>
+            <p>Discover Rajkot's local shops and add something you love.</p>
+            <a class="btn-primary" href="/">Start Shopping</a>
           </div>`;
         return;
       }
@@ -269,7 +269,7 @@
               </div>
               <div class="totals">
                 <div class="trow"><span>Items subtotal</span><span>${inr(subtotal)}</span></div>
-                <div class="trow"><span>Delivery (${vendorCount} vendor${vendorCount > 1 ? 's' : ''} × ${inr(DELIVERY_FEE)})</span><span>${inr(delivery)}</span></div>
+                <div class="trow"><span>Delivery (${vendorCount} shop${vendorCount > 1 ? 's' : ''} × ${inr(DELIVERY_FEE)})</span><span>${inr(delivery)}</span></div>
                 <div class="trow grand"><span>Total</span><span>${inr(subtotal + delivery)}</span></div>
               </div>
               <button type="submit" class="place-btn" id="placeBtn">Place Order · ${inr(subtotal + delivery)}</button>
