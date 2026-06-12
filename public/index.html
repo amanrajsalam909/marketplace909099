@@ -176,6 +176,40 @@
     }
     .back-btn:hover { border-color: var(--primary); color: var(--primary); }
 
+    /* Category chips */
+    .cat-chips {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+      margin-bottom: 22px;
+      scrollbar-width: none;
+    }
+    .cat-chips::-webkit-scrollbar { display: none; }
+    .cat-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .cat-chip:hover { border-color: var(--primary); color: var(--primary); }
+    .cat-chip.active {
+      background: var(--dark);
+      color: #fff;
+      border-color: var(--dark);
+    }
+
     /* Vendor cards */
     .vendors-grid {
       display: grid;
@@ -377,11 +411,12 @@
   </header>
 
   <section class="hero" id="hero">
-    <h1>Local flavours, delivered fast.</h1>
-    <p>Order directly from Rajkot's trusted local vendors — fresh, fair-priced, and at your doorstep.</p>
+    <h1>Everything local, delivered fast.</h1>
+    <p>Food, electronics, fashion, grocery and more — shop directly from Rajkot's trusted local vendors.</p>
   </section>
 
   <main class="container">
+    <div class="cat-chips" id="catChips"></div>
     <div class="section-head">
       <h2 class="section-title" id="sectionTitle">Browse Vendors</h2>
       <button class="back-btn" id="backBtn">← All Vendors</button>
@@ -408,6 +443,8 @@
   <script>
     const state = {
       vendors: [],
+      categories: [],
+      categoryFilter: '',
       products: [],
       currentVendor: null,
       cart: JSON.parse(localStorage.getItem('cart') || '[]'),
@@ -446,25 +483,56 @@
       el.style.display = count > 0 ? 'inline-flex' : 'none';
     }
 
-    async function loadVendors() {
+    async function loadMarketplace() {
       try {
-        const res = await fetch('/api/marketplace?action=vendors');
-        state.vendors = await res.json();
+        const [vRes, cRes] = await Promise.all([
+          fetch('/api/marketplace?action=vendors'),
+          fetch('/api/marketplace?action=categories')
+        ]);
+        state.vendors = await vRes.json();
+        state.categories = cRes.ok ? await cRes.json() : [];
+        renderCategoryChips();
         renderVendors();
       } catch (e) {
         content.innerHTML = '<div class="state">Could not load vendors. Please refresh the page.</div>';
       }
     }
 
+    function renderCategoryChips() {
+      const wrap = document.getElementById('catChips');
+      if (!state.categories.length) { wrap.style.display = 'none'; return; }
+      wrap.style.display = 'flex';
+      wrap.innerHTML = `<button class="cat-chip ${!state.categoryFilter ? 'active' : ''}" data-cat="">✨ All</button>`
+        + state.categories.map(c =>
+          `<button class="cat-chip ${state.categoryFilter === c.id ? 'active' : ''}" data-cat="${c.id}">${esc(c.icon || '🛍️')} ${esc(c.name)}</button>`
+        ).join('');
+    }
+
+    document.getElementById('catChips').addEventListener('click', e => {
+      const chip = e.target.closest('[data-cat]');
+      if (!chip) return;
+      state.categoryFilter = chip.dataset.cat;
+      state.currentVendor = null;
+      renderCategoryChips();
+      renderVendors();
+    });
+
     function renderVendors() {
       const q = state.search.toLowerCase();
-      const list = state.vendors.filter(v => !q || v.name.toLowerCase().includes(q) || (v.description || '').toLowerCase().includes(q));
+      const list = state.vendors.filter(v =>
+        (!state.categoryFilter || v.category_id === state.categoryFilter) &&
+        (!q || v.name.toLowerCase().includes(q) || (v.description || '').toLowerCase().includes(q))
+      );
 
-      sectionTitle.textContent = 'Browse Vendors';
+      const catName = state.categoryFilter
+        ? (state.categories.find(c => c.id === state.categoryFilter) || {}).name
+        : null;
+      sectionTitle.textContent = catName ? catName + ' Vendors' : 'Browse Vendors';
       backBtn.style.display = 'none';
+      document.getElementById('catChips').style.display = state.categories.length ? 'flex' : 'none';
 
       if (!list.length) {
-        content.innerHTML = '<div class="state">No vendors found' + (q ? ' for "' + esc(q) + '"' : ' yet — check back soon!') + '</div>';
+        content.innerHTML = '<div class="state">No vendors found' + (q ? ' for "' + esc(q) + '"' : (catName ? ' in ' + esc(catName) + ' yet — check back soon!' : ' yet — check back soon!')) + '</div>';
         return;
       }
 
@@ -475,8 +543,8 @@
           </div>
           <div class="vendor-body">
             <div class="vendor-name">${esc(v.name)}</div>
-            <div class="vendor-meta">📍 ${esc(v.address || 'Rajkot')}</div>
-            <div class="vendor-desc">${esc(v.description || 'Fresh and delicious, made locally.')}</div>
+            <div class="vendor-meta">${v.categories ? esc((v.categories.icon || '') + ' ' + v.categories.name) + ' · ' : ''}📍 ${esc(v.address || 'Rajkot')}</div>
+            <div class="vendor-desc">${esc(v.description || 'Quality products from a local Rajkot business.')}</div>
           </div>
         </div>
       `).join('') + '</div>';
@@ -488,6 +556,7 @@
 
       sectionTitle.textContent = state.currentVendor.name;
       backBtn.style.display = 'inline-flex';
+      document.getElementById('catChips').style.display = 'none';
       content.innerHTML = '<div class="skeleton-grid"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
       window.scrollTo({ top: document.querySelector('.container').offsetTop - 70, behavior: 'smooth' });
 
@@ -511,9 +580,9 @@
 
       content.innerHTML = '<div class="products-grid">' + list.map(p => `
         <div class="product-card">
-          <div class="product-image">${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}">` : '🍽️'}</div>
+          <div class="product-image">${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}">` : '🛍️'}</div>
           <div class="product-body">
-            <div class="product-category">${esc(p.category || 'Food')}</div>
+            <div class="product-category">${esc(p.category || 'General')}</div>
             <div class="product-name">${esc(p.name)}</div>
             <div class="product-desc">${esc(p.description || '')}</div>
             <div class="product-footer">
@@ -564,7 +633,7 @@
       state.currentVendor ? renderProducts() : renderVendors();
     });
 
-    loadVendors();
+    loadMarketplace();
     updateCartCount();
   </script>
 </body>

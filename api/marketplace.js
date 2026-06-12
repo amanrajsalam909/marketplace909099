@@ -15,9 +15,20 @@ module.exports = async (req, res) => {
       if (action === 'vendors') {
         const { data, error } = await supabase
           .from('vendors')
-          .select('id, name, slug, description, logo_url, banner_url, address, phone, is_active')
+          .select('id, name, slug, description, logo_url, banner_url, address, phone, is_active, category_id, categories(name, icon)')
           .eq('is_active', true)
           .order('name');
+
+        if (error) throw error;
+        return res.json(data);
+      }
+
+      if (action === 'categories') {
+        const { data, error } = await supabase
+          .from('categories')
+          .select('id, name, icon, sort_order')
+          .eq('is_active', true)
+          .order('sort_order');
 
         if (error) throw error;
         return res.json(data);

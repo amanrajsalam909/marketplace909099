@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel — Rajkot Market</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #e85d04;
+      --primary-dark: #c44e03;
+      --primary-light: #fff1e6;
+      --dark: #1e293b;
+      --darker: #0f172a;
+      --text: #334155;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+      --green: #059669;
+      --amber: #d97706;
+      --red: #dc2626;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg); color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .topbar { background: var(--darker); color: #fff; }
+    .topbar-inner {
+      max-width: 1100px; margin: 0 auto; padding: 14px 20px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .brand { font-size: 18px; font-weight: 800; letter-spacing: -0.5px; color: #fff; text-decoration: none; }
+    .brand span { color: #fb923c; }
+    .brand small { font-size: 11px; font-weight: 600; color: #94a3b8; margin-left: 8px; letter-spacing: 1px; }
+    .logout-btn {
+      background: rgba(255,255,255,0.1); color: #fff;
+      border: 1px solid rgba(255,255,255,0.2);
+      padding: 7px 14px; border-radius: 8px;
+      font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+    }
+    .logout-btn:hover { background: rgba(255,255,255,0.18); }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+    .stat {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow);
+    }
+    .stat .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .stat .value { font-size: 26px; font-weight: 800; color: var(--dark); margin-top: 6px; letter-spacing: -0.5px; }
+    .stat .value.green { color: var(--green); }
+    .stat .value.amber { color: var(--amber); }
+    .stat .value.orange { color: var(--primary); }
+
+    .tabs {
+      display: flex; gap: 4px; margin-bottom: 18px;
+      background: #eef2f7; padding: 4px; border-radius: 10px; width: fit-content;
+      max-width: 100%; overflow-x: auto;
+    }
+    .tab {
+      padding: 8px 18px; border: none; background: transparent;
+      font-size: 14px; font-weight: 600; color: var(--muted);
+      border-radius: 8px; cursor: pointer; font-family: inherit; white-space: nowrap;
+    }
+    .tab.active { background: var(--card); color: var(--dark); box-shadow: var(--shadow); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      padding: 20px; margin-bottom: 16px;
+    }
+    .card h3 { font-size: 15px; font-weight: 700; color: var(--dark); margin-bottom: 14px; }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-grid .full { grid-column: 1 / -1; }
+    label {
+      display: block; font-size: 12px; font-weight: 600; color: var(--muted);
+      margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    input, select, textarea {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid var(--border); border-radius: 8px;
+      font-size: 14px; font-family: inherit; background: var(--bg);
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); background: var(--card); }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 18px; border-radius: 8px;
+      font-size: 13px; font-weight: 700; font-family: inherit;
+      border: none; cursor: pointer; transition: background 0.15s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-primary:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .btn-outline { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+    .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+    .btn-outline.danger:hover { border-color: var(--red); color: var(--red); }
+    .btn-sm { padding: 7px 12px; font-size: 12px; }
+
+    /* Lists */
+    .list-row {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 18px; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      box-shadow: var(--shadow);
+    }
+    .row-icon {
+      width: 42px; height: 42px; border-radius: 9px; flex-shrink: 0;
+      background: var(--primary-light);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 19px; font-weight: 800; color: var(--primary);
+    }
+    .row-info { flex: 1; min-width: 180px; }
+    .row-title { font-size: 14px; font-weight: 700; color: var(--dark); }
+    .row-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .badge {
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+    }
+    .badge.on { background: #d1fae5; color: #065f46; }
+    .badge.off { background: #fee2e2; color: #991b1b; }
+
+    /* Orders table */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left; padding: 10px 12px;
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.4px;
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+    td { padding: 11px 12px; border-bottom: 1px solid #f1f5f9; color: var(--text); white-space: nowrap; }
+    td b { color: var(--dark); }
+    .pill {
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+    }
+    .pill.pending   { background: #fef3c7; color: #92400e; }
+    .pill.confirmed { background: #dbeafe; color: #1e40af; }
+    .pill.preparing { background: #ffedd5; color: #9a3412; }
+    .pill.ready     { background: #e0e7ff; color: #3730a3; }
+    .pill.delivered { background: #d1fae5; color: #065f46; }
+
+    .state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 14px; }
+
+    .toast {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--dark); color: #fff;
+      padding: 12px 22px; border-radius: 999px;
+      font-size: 14px; font-weight: 600;
+      transition: transform 0.25s ease; z-index: 200;
+      max-width: calc(100vw - 40px);
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* Modal */
+    .modal-bg {
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5);
+      display: none; align-items: center; justify-content: center; z-index: 150; padding: 20px;
+    }
+    .modal-bg.open { display: flex; }
+    .modal {
+      background: var(--card); border-radius: 14px; padding: 24px;
+      width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto;
+    }
+    .modal h3 { font-size: 16px; font-weight: 800; color: var(--dark); margin-bottom: 16px; }
+    .modal .form-grid { margin-bottom: 16px; }
+
+    @media (max-width: 760px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .form-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">Rajkot<span>Market</span><small>ADMIN</small></a>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <main class="container">
+    <div class="stats">
+      <div class="stat"><div class="label">Active Vendors</div><div class="value" id="stVendors">—</div></div>
+      <div class="stat"><div class="label">Total Orders</div><div class="value orange" id="stOrders">—</div></div>
+      <div class="stat"><div class="label">Pending Orders</div><div class="value amber" id="stPending">—</div></div>
+      <div class="stat"><div class="label">Total GMV</div><div class="value green" id="stRevenue">—</div></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="vendors">Vendors</button>
+      <button class="tab" data-tab="categories">Categories</button>
+      <button class="tab" data-tab="orders">Orders</button>
+      <button class="tab" data-tab="settings">Settings</button>
+    </div>
+
+    <!-- VENDORS -->
+    <section class="panel active" id="panel-vendors">
+      <div class="card">
+        <h3>➕ Onboard a new vendor</h3>
+        <form id="vendorForm">
+          <div class="form-grid">
+            <div><label>Shop name *</label><input id="vName" type="text" required></div>
+            <div><label>Login email *</label><input id="vEmail" type="email" required></div>
+            <div><label>Login password *</label><input id="vPassword" type="text" minlength="6" placeholder="min 6 characters" required></div>
+            <div><label>Phone</label><input id="vPhone" type="tel"></div>
+            <div><label>Category</label><select id="vCategory"><option value="">— None —</option></select></div>
+            <div><label>Commission %</label><input id="vCommission" type="number" min="0" max="50" step="0.5" value="15"></div>
+            <div class="full"><label>Address</label><input id="vAddress" type="text"></div>
+            <div class="full"><label>Description</label><textarea id="vDesc" rows="2"></textarea></div>
+          </div>
+          <button type="submit" class="btn btn-primary" id="vSaveBtn" style="margin-top:14px">Create Vendor</button>
+        </form>
+      </div>
+      <div id="vendorsList"><div class="state">Loading vendors…</div></div>
+    </section>
+
+    <!-- CATEGORIES -->
+    <section class="panel" id="panel-categories">
+      <div class="card">
+        <h3>➕ Add a category</h3>
+        <form id="catForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div style="width:90px"><label>Icon</label><input id="cIcon" type="text" placeholder="🛍️" maxlength="4"></div>
+          <div style="flex:1;min-width:180px"><label>Name *</label><input id="cName" type="text" required></div>
+          <button type="submit" class="btn btn-primary" id="cSaveBtn">Add Category</button>
+        </form>
+      </div>
+      <div id="categoriesList"><div class="state">Loading categories…</div></div>
+    </section>
+
+    <!-- ORDERS -->
+    <section class="panel" id="panel-orders">
+      <div class="card">
+        <h3>Recent orders (all vendors)</h3>
+        <div class="table-wrap" id="ordersTable"><div class="state">Loading orders…</div></div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="panel" id="panel-settings">
+      <div class="card">
+        <h3>🔑 Change admin password</h3>
+        <form id="pwForm" style="max-width:380px">
+          <label>New password (min 8 characters)</label>
+          <input id="newPassword" type="password" minlength="8" required>
+          <button type="submit" class="btn btn-primary" style="margin-top:14px">Update Password</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <!-- Edit vendor modal -->
+  <div class="modal-bg" id="editModal">
+    <div class="modal">
+      <h3>Edit vendor</h3>
+      <form id="editForm">
+        <input type="hidden" id="eId">
+        <div class="form-grid">
+          <div class="full"><label>Shop name</label><input id="eName" type="text" required></div>
+          <div><label>Phone</label><input id="ePhone" type="tel"></div>
+          <div><label>Commission %</label><input id="eCommission" type="number" min="0" max="50" step="0.5"></div>
+          <div class="full"><label>Category</label><select id="eCategory"><option value="">— None —</option></select></div>
+          <div class="full"><label>Address</label><input id="eAddress" type="text"></div>
+          <div class="full"><label>Description</label><textarea id="eDesc" rows="2"></textarea></div>
+          <div class="full"><label>Reset login password (leave blank to keep)</label><input id="ePassword" type="text" placeholder="new password (min 6 chars)"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:6px">
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+          <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const token = localStorage.getItem('adminToken');
+    if (!token) location.href = 'admin-login.html';
+
+    let vendors = [];
+    let categories = [];
+
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const inr = n => '₹' + Number(n).toLocaleString('en-IN');
+
+    function toast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(el._t);
+      el._t = setTimeout(() => el.classList.remove('show'), 2400);
+    }
+
+    function authFail() {
+      localStorage.removeItem('adminToken');
+      location.href = 'admin-login.html';
+    }
+
+    function logout() {
+      fetch('/api/admin-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout', token })
+      }).finally(authFail);
+    }
+
+    async function api(path, opts) {
+      const res = await fetch(path, opts);
+      if (res.status === 401) { authFail(); throw new Error('Session expired'); }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+    const apiGet = action => api(`/api/admin?action=${action}&token=${encodeURIComponent(token)}`);
+    const apiPost = body => api('/api/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, token })
+    });
+
+    /* ---------- Stats ---------- */
+    async function loadStats() {
+      try {
+        const s = await apiGet('stats');
+        document.getElementById('stVendors').textContent = s.vendors_active + ' / ' + s.vendors_total;
+        document.getElementById('stOrders').textContent = s.orders_total;
+        document.getElementById('stPending').textContent = s.orders_pending;
+        document.getElementById('stRevenue').textContent = inr(s.revenue_total);
+      } catch (e) { /* stats are non-critical */ }
+    }
+
+    /* ---------- Categories ---------- */
+    async function loadCategories() {
+      try {
+        categories = await apiGet('categories');
+        renderCategories();
+        fillCategorySelects();
+      } catch (e) {
+        document.getElementById('categoriesList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    function fillCategorySelects() {
+      const opts = '<option value="">— None —</option>' + categories
+        .filter(c => c.is_active)
+        .map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
+      document.getElementById('vCategory').innerHTML = opts;
+      document.getElementById('eCategory').innerHTML = opts;
+    }
+
+    function renderCategories() {
+      const el = document.getElementById('categoriesList');
+      if (!categories.length) {
+        el.innerHTML = '<div class="state">No categories yet — add your first one above.</div>';
+        return;
+      }
+      el.innerHTML = categories.map(c => `
+        <div class="list-row">
+          <div class="row-icon">${esc(c.icon || '🛍️')}</div>
+          <div class="row-info">
+            <div class="row-title">${esc(c.name)}</div>
+            <div class="row-sub">${vendors.filter(v => v.category_id === c.id).length} vendor(s)</div>
+          </div>
+          <span class="badge ${c.is_active ? 'on' : 'off'}">${c.is_active ? 'VISIBLE' : 'HIDDEN'}</span>
+          <div class="row-actions">
+            <button class="btn btn-outline btn-sm" data-cat-toggle="${c.id}" data-active="${c.is_active}">${c.is_active ? 'Hide' : 'Show'}</button>
+            <button class="btn btn-outline btn-sm danger" data-cat-delete="${c.id}">Delete</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    document.getElementById('catForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = document.getElementById('cSaveBtn');
+      btn.disabled = true;
+      try {
+        await apiPost({
+          action: 'create-category',
+          name: document.getElementById('cName').value,
+          icon: document.getElementById('cIcon').value || '🛍️'
+        });
+        toast('Category added');
+        e.target.reset();
+        loadCategories();
+      } catch (err) { toast(err.message); }
+      finally { btn.disabled = false; }
+    });
+
+    document.getElementById('categoriesList').addEventListener('click', async e => {
+      const tgl = e.target.closest('[data-cat-toggle]');
+      const del = e.target.closest('[data-cat-delete]');
+      try {
+        if (tgl) {
+          await apiPost({ action: 'update-category', categoryId: tgl.dataset.catToggle, fields: { is_active: tgl.dataset.active !== 'true' } });
+          toast('Category updated');
+          loadCategories();
+        } else if (del) {
+          if (!confirm('Delete this category? Vendors in it will become uncategorised.')) return;
+          await apiPost({ action: 'delete-category', categoryId: del.dataset.catDelete });
+          toast('Category deleted');
+          loadCategories();
+          loadVendors();
+        }
+      } catch (err) { toast(err.message); }
+    });
+
+    /* ---------- Vendors ---------- */
+    async function loadVendors() {
+      try {
+        vendors = await apiGet('vendors');
+        renderVendors();
+        renderCategories();
+      } catch (e) {
+        document.getElementById('vendorsList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    function renderVendors() {
+      const el = document.getElementById('vendorsList');
+      if (!vendors.length) {
+        el.innerHTML = '<div class="state">No vendors yet — onboard your first vendor above.</div>';
+        return;
+      }
+      el.innerHTML = vendors.map(v => `
+        <div class="list-row">
+          <div class="row-icon">${esc(v.name[0])}</div>
+          <div class="row-info">
+            <div class="row-title">${esc(v.name)}</div>
+            <div class="row-sub">
+              ${v.categories ? esc((v.categories.icon || '') + ' ' + v.categories.name) + ' · ' : ''}
+              ${esc(v.email)} · ${Number(v.commission_percent)}% commission
+            </div>
+          </div>
+          <span class="badge ${v.is_active ? 'on' : 'off'}">${v.is_active ? 'LIVE' : 'SUSPENDED'}</span>
+          <div class="row-actions">
+            <button class="btn btn-outline btn-sm" data-edit="${v.id}">Edit</button>
+            <button class="btn btn-outline btn-sm ${v.is_active ? 'danger' : ''}" data-toggle="${v.id}" data-active="${v.is_active}">
+              ${v.is_active ? 'Suspend' : 'Activate'}
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    document.getElementById('vendorForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = document.getElementById('vSaveBtn');
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+      try {
+        await apiPost({
+          action: 'create-vendor',
+          vendor: {
+            name: document.getElementById('vName').value,
+            email: document.getElementById('vEmail').value,
+            phone: document.getElementById('vPhone').value,
+            address: document.getElementById('vAddress').value,
+            description: document.getElementById('vDesc').value,
+            category_id: document.getElementById('vCategory').value || null,
+            commission_percent: document.getElementById('vCommission').value
+          },
+          password: document.getElementById('vPassword').value
+        });
+        toast('Vendor created — share the login details with them');
+        e.target.reset();
+        document.getElementById('vCommission').value = 15;
+        loadVendors();
+        loadStats();
+      } catch (err) { toast(err.message); }
+      finally { btn.disabled = false; btn.textContent = 'Create Vendor'; }
+    });
+
+    document.getElementById('vendorsList').addEventListener('click', async e => {
+      const edit = e.target.closest('[data-edit]');
+      const tgl = e.target.closest('[data-toggle]');
+
+      if (edit) {
+        const v = vendors.find(x => x.id === edit.dataset.edit);
+        if (!v) return;
+        document.getElementById('eId').value = v.id;
+        document.getElementById('eName').value = v.name;
+        document.getElementById('ePhone').value = v.phone || '';
+        document.getElementById('eCommission').value = v.commission_percent;
+        document.getElementById('eCategory').value = v.category_id || '';
+        document.getElementById('eAddress').value = v.address || '';
+        document.getElementById('eDesc').value = v.description || '';
+        document.getElementById('ePassword').value = '';
+        document.getElementById('editModal').classList.add('open');
+        return;
+      }
+      if (tgl) {
+        const isActive = tgl.dataset.active === 'true';
+        if (isActive && !confirm('Suspend this vendor? Their shop and products will be hidden from customers.')) return;
+        try {
+          await apiPost({ action: 'update-vendor', vendorId: tgl.dataset.toggle, fields: { is_active: !isActive } });
+          toast(isActive ? 'Vendor suspended' : 'Vendor activated');
+          loadVendors();
+          loadStats();
+        } catch (err) { toast(err.message); }
+      }
+    });
+
+    function closeModal() { document.getElementById('editModal').classList.remove('open'); }
+    document.getElementById('editModal').addEventListener('click', e => {
+      if (e.target.id === 'editModal') closeModal();
+    });
+
+    document.getElementById('editForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const vendorId = document.getElementById('eId').value;
+      const newPass = document.getElementById('ePassword').value.trim();
+      try {
+        await apiPost({
+          action: 'update-vendor',
+          vendorId,
+          fields: {
+            name: document.getElementById('eName').value,
+            phone: document.getElementById('ePhone').value,
+            commission_percent: Number(document.getElementById('eCommission').value),
+            category_id: document.getElementById('eCategory').value || null,
+            address: document.getElementById('eAddress').value,
+            description: document.getElementById('eDesc').value
+          }
+        });
+        if (newPass) {
+          await apiPost({ action: 'reset-vendor-password', vendorId, password: newPass });
+        }
+        toast('Vendor updated' + (newPass ? ' (password reset)' : ''));
+        closeModal();
+        loadVendors();
+      } catch (err) { toast(err.message); }
+    });
+
+    /* ---------- Orders ---------- */
+    async function loadOrders() {
+      try {
+        const orders = await apiGet('orders');
+        const el = document.getElementById('ordersTable');
+        if (!orders.length) {
+          el.innerHTML = '<div class="state">No orders yet.</div>';
+          return;
+        }
+        const vendorName = id => (vendors.find(v => v.id === id) || {}).name || '—';
+        el.innerHTML = `
+          <table>
+            <thead><tr><th>Order</th><th>Vendor</th><th>Customer</th><th>Total</th><th>Status</th><th>When</th></tr></thead>
+            <tbody>
+              ${orders.map(o => `
+                <tr>
+                  <td><b>${esc(o.order_id)}</b></td>
+                  <td>${esc(vendorName(o.vendor_id))}</td>
+                  <td>${esc(o.customer_name)}<br><span style="color:var(--muted);font-size:11px">${esc(o.customer_phone)}</span></td>
+                  <td><b>${inr(o.total)}</b></td>
+                  <td><span class="pill ${esc(o.status)}">${esc(o.status)}</span></td>
+                  <td>${o.created_at ? new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`;
+      } catch (e) {
+        document.getElementById('ordersTable').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    /* ---------- Settings ---------- */
+    document.getElementById('pwForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      try {
+        await api('/api/admin-auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'change-password', token, password: document.getElementById('newPassword').value })
+        });
+        toast('Password updated');
+        e.target.reset();
+      } catch (err) { toast(err.message); }
+    });
+
+    /* ---------- Tabs ---------- */
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+        if (tab.dataset.tab === 'orders') loadOrders();
+      });
+    });
+
+    loadStats();
+    loadCategories();
+    loadVendors();
+  </script>
+</body>
+</html>

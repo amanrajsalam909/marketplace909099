@@ -1,0 +1,204 @@
+const guard = require('../lib/guard');
+const supabase = require('../lib/supabase');
+const crypto = require('crypto');
+
+module.exports = async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (!guard(req, res)) return;
+
+  try {
+    const token = req.method === 'GET' ? req.query.token : (req.body || {}).token;
+    const session = await validateAdminSession(token);
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+    if (req.method === 'GET') {
+      const { action } = req.query;
+
+      if (action === 'stats') {
+        const [vendorsRes, ordersRes] = await Promise.all([
+          supabase.from('vendors').select('id, is_active'),
+          supabase.from('orders').select('total, status, vendor_id, created_at')
+        ]);
+        const vendors = vendorsRes.data || [];
+        const orders = ordersRes.data || [];
+        return res.json({
+          vendors_total: vendors.length,
+          vendors_active: vendors.filter(v => v.is_active).length,
+          orders_total: orders.length,
+          orders_pending: orders.filter(o => o.status === 'pending').length,
+          revenue_total: orders.reduce((s, o) => s + Number(o.total || 0), 0)
+        });
+      }
+
+      if (action === 'vendors') {
+        const { data, error } = await supabase
+          .from('vendors')
+          .select('*, categories(name, icon)')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        return res.json(data);
+      }
+
+      if (action === 'categories') {
+        const { data, error } = await supabase
+          .from('categories')
+          .select('*')
+          .order('sort_order');
+        if (error) throw error;
+        return res.json(data);
+      }
+
+      if (action === 'orders') {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('order_id, vendor_id, customer_name, customer_phone, total, status, created_at')
+          .order('created_at', { ascending: false })
+          .limit(100);
+        if (error) throw error;
+        return res.json(data);
+      }
+
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    if (req.method === 'POST') {
+      const { action } = req.body;
+
+      // ---------- Vendors ----------
+      if (action === 'create-vendor') {
+        const { vendor, password } = req.body;
+        if (!vendor || !vendor.name || !vendor.email || !password) {
+          return res.status(400).json({ error: 'Vendor name, email and password are required' });
+        }
+        if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+        const slug = vendor.name.toLowerCase().trim()
+          .replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+          + '-' + Math.random().toString(36).slice(2, 6);
+
+        const { data: newVendor, error: vendorError } = await supabase
+          .from('vendors')
+          .insert({
+            name: vendor.name.trim(),
+            slug,
+            email: vendor.email.trim().toLowerCase(),
+            phone: vendor.phone || '',
+            address: vendor.address || '',
+            description: vendor.description || '',
+            category_id: vendor.category_id || null,
+            commission_percent: Number(vendor.commission_percent) || 15,
+            is_active: true
+          })
+          .select('id')
+          .single();
+        if (vendorError) {
+          if (vendorError.code === '23505') return res.status(400).json({ error: 'A vendor with this email already exists' });
+          throw vendorError;
+        }
+
+        const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+        const { error: userError } = await supabase
+          .from('vendor_users')
+          .insert({
+            vendor_id: newVendor.id,
+            email: vendor.email.trim().toLowerCase(),
+            password_hash: passwordHash,
+            role: 'owner',
+            is_active: true
+          });
+        if (userError) throw userError;
+
+        return res.json({ success: true, id: newVendor.id });
+      }
+
+      if (action === 'update-vendor') {
+        const { vendorId, fields } = req.body;
+        if (!vendorId || !fields) return res.status(400).json({ error: 'vendorId and fields required' });
+
+        const allowed = {};
+        for (const k of ['name', 'phone', 'address', 'description', 'category_id', 'commission_percent', 'is_active']) {
+          if (k in fields) allowed[k] = fields[k];
+        }
+        allowed.updated_at = new Date().toISOString();
+
+        const { error } = await supabase.from('vendors').update(allowed).eq('id', vendorId);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      if (action === 'reset-vendor-password') {
+        const { vendorId, password } = req.body;
+        if (!vendorId || !password || password.length < 6) {
+          return res.status(400).json({ error: 'vendorId and a password of at least 6 characters required' });
+        }
+        const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+        const { error } = await supabase
+          .from('vendor_users')
+          .update({ password_hash: passwordHash })
+          .eq('vendor_id', vendorId);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      // ---------- Categories ----------
+      if (action === 'create-category') {
+        const { name, icon } = req.body;
+        if (!name || !name.trim()) return res.status(400).json({ error: 'Category name required' });
+
+        const { error } = await supabase
+          .from('categories')
+          .insert({ name: name.trim(), icon: (icon || '🛍️').trim(), is_active: true });
+        if (error) {
+          if (error.code === '23505') return res.status(400).json({ error: 'This category already exists' });
+          throw error;
+        }
+        return res.json({ success: true });
+      }
+
+      if (action === 'update-category') {
+        const { categoryId, fields } = req.body;
+        if (!categoryId || !fields) return res.status(400).json({ error: 'categoryId and fields required' });
+
+        const allowed = {};
+        for (const k of ['name', 'icon', 'sort_order', 'is_active']) {
+          if (k in fields) allowed[k] = fields[k];
+        }
+        const { error } = await supabase.from('categories').update(allowed).eq('id', categoryId);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      if (action === 'delete-category') {
+        const { categoryId } = req.body;
+        if (!categoryId) return res.status(400).json({ error: 'categoryId required' });
+
+        // Detach vendors first so the FK doesn't block deletion
+        await supabase.from('vendors').update({ category_id: null }).eq('category_id', categoryId);
+        const { error } = await supabase.from('categories').delete().eq('id', categoryId);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    res.status(405).json({ error: 'Method not allowed' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+async function validateAdminSession(token) {
+  if (!token) return null;
+  const { data } = await supabase
+    .from('admin_sessions')
+    .select('admin_id, expires_at')
+    .eq('token', token)
+    .single();
+  if (!data) return null;
+  if (new Date(data.expires_at) < new Date()) return null;
+  return data;
+}
