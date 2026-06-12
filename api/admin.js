@@ -51,6 +51,15 @@ module.exports = async (req, res) => {
         return res.json(data);
       }
 
+      if (action === 'offers') {
+        const { data, error } = await supabase
+          .from('offers')
+          .select('*, vendors(name)')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        return res.json(data);
+      }
+
       if (action === 'orders') {
         const { data, error } = await supabase
           .from('orders')
@@ -157,6 +166,47 @@ module.exports = async (req, res) => {
           .from('vendor_users')
           .update({ password_hash: passwordHash })
           .eq('vendor_id', vendorId);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      if (action === 'create-offer') {
+        const o = req.body.offer || {};
+        if (!o.name || !String(o.name).trim()) return res.status(400).json({ error: 'Offer name required.' });
+        if (!['percent', 'flat'].includes(o.discount_type)) return res.status(400).json({ error: 'Invalid discount type.' });
+        const v = Number(o.discount_value);
+        if (!Number.isFinite(v) || v <= 0) return res.status(400).json({ error: 'Discount value must be greater than 0.' });
+        if (o.discount_type === 'percent' && v > 90) return res.status(400).json({ error: 'Percent discount cannot exceed 90%.' });
+        if (!o.valid_from || !o.valid_to || new Date(o.valid_to) <= new Date(o.valid_from)) {
+          return res.status(400).json({ error: 'End date must be after the start date.' });
+        }
+
+        const { error } = await supabase.from('offers').insert({
+          vendor_id: o.vendor_id || null,            // null = all shops
+          name: String(o.name).trim().slice(0, 80),
+          description: String(o.description || '').trim().slice(0, 200),
+          discount_type: o.discount_type,
+          discount_value: v,
+          max_discount: o.max_discount ? Number(o.max_discount) : null,
+          min_order: Number(o.min_order) || 0,
+          valid_from: new Date(o.valid_from).toISOString(),
+          valid_to: new Date(o.valid_to).toISOString(),
+          max_uses: o.max_uses ? parseInt(o.max_uses, 10) : null,
+          created_by: 'admin'
+        });
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      if (action === 'toggle-offer') {
+        const { error } = await supabase
+          .from('offers').update({ active: req.body.active === true }).eq('id', req.body.offerId);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      if (action === 'delete-offer') {
+        const { error } = await supabase.from('offers').delete().eq('id', req.body.offerId);
         if (error) throw error;
         return res.json({ success: true });
       }

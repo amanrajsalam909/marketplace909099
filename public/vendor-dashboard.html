@@ -256,6 +256,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="orders">Orders</button>
       <button class="tab" data-tab="products">Products</button>
+      <button class="tab" data-tab="offers">Offers</button>
       <button class="tab" data-tab="accounting">Accounting</button>
       <button class="tab" data-tab="settings">Shop Settings</button>
     </div>
@@ -299,6 +300,34 @@
       </div>
 
       <div class="product-list" id="productsList"><div class="state">Loading products…</div></div>
+    </section>
+
+    <section class="panel" id="panel-offers">
+      <div class="product-form open" style="display:block">
+        <h3>🎉 Create an offer</h3>
+        <p style="font-size:12px;color:var(--muted);margin:-8px 0 12px">The biggest valid offer auto-applies to customer orders from your shop. The discount comes out of your items value (commission is charged on the discounted amount, so the marketplace shares the cost).</p>
+        <form id="offerForm">
+          <div class="form-grid">
+            <div><label for="ofName">Offer name *</label><input id="ofName" type="text" placeholder="e.g. Weekend 10% OFF" required></div>
+            <div><label for="ofType">Type *</label>
+              <select id="ofType" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg)">
+                <option value="percent">Percent (%)</option>
+                <option value="flat">Flat (₹)</option>
+              </select>
+            </div>
+            <div><label for="ofValue">Discount value *</label><input id="ofValue" type="number" min="1" step="0.5" required></div>
+            <div><label for="ofCap">Max discount ₹ (cap, optional)</label><input id="ofCap" type="number" min="1" step="1"></div>
+            <div><label for="ofMin">Min order ₹</label><input id="ofMin" type="number" min="0" step="1" value="0"></div>
+            <div><label for="ofUses">Max uses (optional)</label><input id="ofUses" type="number" min="1" step="1"></div>
+            <div><label for="ofFrom">Valid from *</label><input id="ofFrom" type="datetime-local" required></div>
+            <div><label for="ofTo">Valid until *</label><input id="ofTo" type="datetime-local" required></div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="save-btn" id="ofSaveBtn">Create Offer</button>
+          </div>
+        </form>
+      </div>
+      <div class="product-list" id="offersList"><div class="state">Loading offers…</div></div>
     </section>
 
     <section class="panel" id="panel-accounting">
@@ -630,6 +659,110 @@
       }
     });
 
+    /* ---------- Offers ---------- */
+    function offerLabel(o) {
+      const v = o.discount_type === 'percent'
+        ? Number(o.discount_value) + '% OFF' + (o.max_discount ? ' up to ' + inr(o.max_discount) : '')
+        : inr(o.discount_value) + ' OFF';
+      return v + (Number(o.min_order) > 0 ? ' · min order ' + inr(o.min_order) : '');
+    }
+
+    async function loadOffers() {
+      try {
+        const res = await fetch('/api/vendor-settings?offers=1&token=' + encodeURIComponent(token));
+        if (res.status === 401) return authFail();
+        const offers = await res.json();
+        const el = document.getElementById('offersList');
+        if (!offers.length) {
+          el.innerHTML = '<div class="state">No offers yet — create one above to attract customers!</div>';
+          return;
+        }
+        const now = Date.now();
+        el.innerHTML = offers.map(o => {
+          const expired = new Date(o.valid_to).getTime() < now;
+          const usedUp = o.max_uses !== null && o.uses_count >= o.max_uses;
+          const live = o.active && !expired && !usedUp;
+          return `
+          <div class="product-row">
+            <div class="p-thumb">🎉</div>
+            <div class="p-info">
+              <div class="p-name">${esc(o.name)}</div>
+              <div class="p-meta">
+                ${esc(offerLabel(o))} ·
+                until ${new Date(o.valid_to).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} ·
+                used ${o.uses_count}${o.max_uses ? '/' + o.max_uses : ''}
+                ${expired ? ' · <span style="color:var(--red);font-weight:700">EXPIRED</span>' : usedUp ? ' · <span style="color:var(--amber);font-weight:700">USED UP</span>' : ''}
+              </div>
+            </div>
+            <span class="pill ${live ? 'delivered' : 'cancelled'}">${live ? 'LIVE' : 'OFF'}</span>
+            <button class="icon-btn" data-of-toggle="${o.id}" data-active="${o.active}">${o.active ? 'Pause' : 'Resume'}</button>
+            <button class="icon-btn danger" data-of-delete="${o.id}">Delete</button>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById('offersList').innerHTML = '<div class="state">Could not load offers.</div>';
+      }
+    }
+
+    document.getElementById('offerForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = document.getElementById('ofSaveBtn');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/vendor-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token,
+            action: 'create-offer',
+            offer: {
+              name: document.getElementById('ofName').value,
+              discount_type: document.getElementById('ofType').value,
+              discount_value: document.getElementById('ofValue').value,
+              max_discount: document.getElementById('ofCap').value || null,
+              min_order: document.getElementById('ofMin').value,
+              max_uses: document.getElementById('ofUses').value || null,
+              valid_from: document.getElementById('ofFrom').value,
+              valid_to: document.getElementById('ofTo').value
+            }
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Could not create the offer');
+        toast('Offer is live!');
+        e.target.reset();
+        document.getElementById('ofMin').value = 0;
+        loadOffers();
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('offersList').addEventListener('click', async e => {
+      const tgl = e.target.closest('[data-of-toggle]');
+      const del = e.target.closest('[data-of-delete]');
+      try {
+        if (tgl) {
+          const res = await fetch('/api/vendor-settings', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, action: 'toggle-offer', offerId: tgl.dataset.ofToggle, active: tgl.dataset.active !== 'true' })
+          });
+          if (!res.ok) throw new Error((await res.json()).error);
+          toast('Offer updated'); loadOffers();
+        } else if (del) {
+          if (!confirm('Delete this offer?')) return;
+          const res = await fetch('/api/vendor-settings', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, action: 'delete-offer', offerId: del.dataset.ofDelete })
+          });
+          if (!res.ok) throw new Error((await res.json()).error);
+          toast('Offer deleted'); loadOffers();
+        }
+      } catch (err) { toast(err.message); }
+    });
+
     /* ---------- Accounting ---------- */
     let accDays = '0';
 
@@ -784,6 +917,7 @@
         document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
         if (tab.dataset.tab === 'settings' && !settingsLoaded) loadSettings();
         if (tab.dataset.tab === 'accounting') loadAccounting();
+        if (tab.dataset.tab === 'offers') loadOffers();
       });
     });
 

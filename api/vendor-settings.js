@@ -16,6 +16,16 @@ module.exports = async (req, res) => {
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
     if (req.method === 'GET') {
+      if (req.query.offers) {
+        const { data, error } = await supabase
+          .from('offers')
+          .select('*')
+          .eq('vendor_id', session.vendor_id)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        return res.json(data);
+      }
+
       const { data, error } = await supabase
         .from('vendors')
         .select('name, phone, address, description, is_open, open_time, close_time, open_days, delivery_fee, min_order, accepts_cod, upi_id, commission_percent')
@@ -26,6 +36,48 @@ module.exports = async (req, res) => {
     }
 
     if (req.method === 'POST') {
+      const { action } = req.body || {};
+
+      // ----- Offer management (own shop only) -----
+      if (action === 'create-offer') {
+        const err = validateOffer(req.body.offer);
+        if (err) return res.status(400).json({ error: err });
+        const o = req.body.offer;
+
+        const { error } = await supabase.from('offers').insert({
+          vendor_id: session.vendor_id,
+          name: String(o.name).trim().slice(0, 80),
+          description: String(o.description || '').trim().slice(0, 200),
+          discount_type: o.discount_type,
+          discount_value: Number(o.discount_value),
+          max_discount: o.max_discount ? Number(o.max_discount) : null,
+          min_order: Number(o.min_order) || 0,
+          valid_from: new Date(o.valid_from).toISOString(),
+          valid_to: new Date(o.valid_to).toISOString(),
+          max_uses: o.max_uses ? parseInt(o.max_uses, 10) : null,
+          created_by: 'vendor'
+        });
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      if (action === 'toggle-offer' || action === 'delete-offer') {
+        const { data: offer } = await supabase
+          .from('offers').select('vendor_id').eq('id', req.body.offerId).single();
+        if (!offer || offer.vendor_id !== session.vendor_id) {
+          return res.status(403).json({ error: 'Forbidden' });
+        }
+        if (action === 'toggle-offer') {
+          const { error } = await supabase
+            .from('offers').update({ active: req.body.active === true }).eq('id', req.body.offerId);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from('offers').delete().eq('id', req.body.offerId);
+          if (error) throw error;
+        }
+        return res.json({ success: true });
+      }
+
       const f = (req.body || {}).fields || {};
       const updates = {};
 
@@ -93,6 +145,19 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+function validateOffer(o) {
+  if (!o || !o.name || !String(o.name).trim()) return 'Offer name is required.';
+  if (!['percent', 'flat'].includes(o.discount_type)) return 'Discount type must be percent or flat.';
+  const v = Number(o.discount_value);
+  if (!Number.isFinite(v) || v <= 0) return 'Discount value must be greater than 0.';
+  if (o.discount_type === 'percent' && v > 90) return 'Percent discount cannot exceed 90%.';
+  if (o.max_discount && (!Number.isFinite(Number(o.max_discount)) || Number(o.max_discount) <= 0)) return 'Max discount must be a positive amount.';
+  if (!o.valid_from || !o.valid_to) return 'Start and end dates are required.';
+  if (new Date(o.valid_to) <= new Date(o.valid_from)) return 'End date must be after the start date.';
+  if (o.max_uses && (!Number.isInteger(Number(o.max_uses)) || Number(o.max_uses) <= 0)) return 'Max uses must be a positive whole number.';
+  return null;
+}
 
 async function validateVendorSession(token) {
   if (!token) return null;

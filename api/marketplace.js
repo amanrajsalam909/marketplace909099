@@ -23,6 +23,26 @@ module.exports = async (req, res) => {
         return res.json(data);
       }
 
+      if (action === 'offers') {
+        const now = new Date().toISOString();
+        let query = supabase
+          .from('offers')
+          .select('id, vendor_id, name, description, discount_type, discount_value, max_discount, min_order, valid_to, max_uses, uses_count')
+          .eq('active', true)
+          .lte('valid_from', now)
+          .gte('valid_to', now)
+          .order('discount_value', { ascending: false });
+
+        if (req.query.vendorId) {
+          query = query.or(`vendor_id.eq.${req.query.vendorId},vendor_id.is.null`);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        // usage-cap filter (column-to-column compare isn't supported in the query API)
+        return res.json((data || []).filter(o => o.max_uses === null || o.uses_count < o.max_uses));
+      }
+
       if (action === 'categories') {
         const { data, error } = await supabase
           .from('categories')
