@@ -37,7 +37,7 @@ module.exports = async (req, res) => {
     if (action === 'get-orders') {
       const { data } = await supabase
         .from('orders')
-        .select('order_id, customer_name, customer_phone, delivery_address, total, payment_method, payment_status, created_at, vendors(name)')
+        .select('order_id, customer_name, customer_phone, delivery_address, address_json, total, payment_method, payment_status, created_at, vendors(name)')
         .eq('status', 'ready')
         .order('created_at', { ascending: true });
       return res.json(data || []);
@@ -130,7 +130,7 @@ module.exports = async (req, res) => {
 
       const { data: orders } = await supabase
         .from('orders')
-        .select('order_id, customer_name, delivery_address, total, payment_method, updated_at, vendors(name)')
+        .select('order_id, customer_name, delivery_address, address_json, total, payment_method, updated_at, vendors(name)')
         .eq('status', 'delivered')
         .gte('updated_at', startOfDay.toISOString())
         .order('updated_at', { ascending: false });

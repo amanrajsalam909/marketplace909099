@@ -97,6 +97,12 @@
     }
     .addr b { color: var(--dark); }
     .addr a { color: var(--primary); text-decoration: none; font-weight: 700; }
+    .addr .arow { padding: 1px 0; }
+    .addr .alabel {
+      display: inline-block; min-width: 92px;
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.4px;
+    }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .btn {
       flex: 1; min-width: 130px; padding: 12px; border-radius: 9px;
@@ -168,6 +174,21 @@
       return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear()
         + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
     };
+
+    // Labelled Indian address fields for new orders; old orders only have
+    // the single composed string
+    function addrHtml(o) {
+      const a = o.address_json;
+      if (!a) return '📍 ' + esc(o.delivery_address);
+      const row = (label, v) => v ? `<div class="arow"><span class="alabel">${label}</span> ${esc(v)}</div>` : '';
+      return row('Flat/House', a.flat)
+        + row('Building', a.building)
+        + row('Street/Road', a.street)
+        + row('Area', a.area)
+        + row('Landmark', a.landmark)
+        + row('City · PIN', a.city || a.pin ? [a.city, a.pin].filter(Boolean).join(' – ') : '')
+        || ('📍 ' + esc(o.delivery_address));
+    }
 
     function toast(msg) {
       const el = document.getElementById('toast');
@@ -247,8 +268,8 @@
               <div class="amount">${inr(o.total)}</div>
             </div>
             <div class="addr">
-              <b>${esc(o.customer_name)}</b> · <a href="tel:${esc(o.customer_phone)}">📞 ${esc(o.customer_phone)}</a><br>
-              📍 ${esc(o.delivery_address)}
+              <b>${esc(o.customer_name)}</b> · <a href="tel:${esc(o.customer_phone)}">📞 ${esc(o.customer_phone)}</a>
+              <div style="margin-top:6px">${addrHtml(o)}</div>
             </div>
             <div class="actions">
               ${isCod && !cashCollected
@@ -309,8 +330,8 @@
                 <div class="done-meta">
                   <b>${esc(o.order_id)}</b> · ${esc((o.vendors || {}).name || '')}<br>
                   🗓 ${ddmmyyyy(o.delivered_at)}<br>
-                  👤 ${esc(o.customer_name)}<br>
-                  📍 ${esc(o.delivery_address)}
+                  👤 ${esc(o.customer_name)}
+                  <div style="margin-top:4px">${addrHtml(o)}</div>
                 </div>
               </div>
               <div class="amount">${inr(o.total)}<div style="font-size:10px;font-weight:700;color:var(--muted);text-align:right">${esc(o.payment_method)}</div></div>

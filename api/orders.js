@@ -110,7 +110,8 @@ module.exports = async (req, res) => {
             name: String(customer.name || '').trim(),
             phone: String(customer.phone || '').trim(),
             email: String(customer.email || '').trim().toLowerCase(),
-            address: String(customer.address || '').trim()
+            address: String(customer.address || '').trim(),
+            address_parts: sanitizeAddressParts(customer.address_parts)
           },
           p_items: lines,
           p_payment_method: payment_method === 'UPI' ? 'UPI' : 'COD',
@@ -171,6 +172,20 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+// Structured Indian address fields (flat/house, building, street, area,
+// landmark, city, PIN) — stored as JSONB so the delivery panel can show
+// labelled fields. Returns null when nothing usable was sent.
+function sanitizeAddressParts(p) {
+  if (!p || typeof p !== 'object') return null;
+  const f = k => String(p[k] || '').trim().slice(0, 120);
+  const out = {
+    flat: f('flat'), building: f('building'), street: f('street'),
+    area: f('area'), landmark: f('landmark'), city: f('city'),
+    pin: f('pin').replace(/\D/g, '').slice(0, 6)
+  };
+  return Object.values(out).some(Boolean) ? out : null;
+}
 
 async function notifyByEmail(orders, customer) {
   for (const o of orders || []) {

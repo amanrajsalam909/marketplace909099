@@ -576,7 +576,10 @@
             // Only ids + quantities: prices, fees and totals are computed
             // server-side from the database.
             items: cart.map(i => ({ id: i.id, qty: i.quantity })),
-            customer: { name, phone, email, address },
+            customer: {
+              name, phone, email, address,
+              address_parts: { flat, building: bldg, street, area, landmark, city, pin }
+            },
             payment_method: method,
             utr: (document.getElementById('cUtr') || {}).value || '',
             idempotency_key: sessionStorage.getItem('checkoutKey')
