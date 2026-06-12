@@ -12,15 +12,21 @@ module.exports = async (req, res) => {
 
   try {
     if (req.method === 'GET') {
-      const { orderId } = req.query;
+      const { orderId, phone } = req.query;
 
-      let query = supabase.from('orders').select('*');
-      if (orderId) {
-        query = query.eq('order_id', orderId);
+      // Customers can only look up their own order: order ID + matching phone required
+      if (!orderId || !phone) {
+        return res.status(400).json({ error: 'Order ID and phone number required' });
       }
 
-      const { data, error } = await query.order('created_at', { ascending: false });
-      if (error) throw error;
+      const { data, error } = await supabase
+        .from('orders')
+        .select('order_id, status, items_json, total, delivery_address, created_at, updated_at')
+        .eq('order_id', orderId)
+        .eq('customer_phone', phone)
+        .single();
+
+      if (error || !data) return res.status(404).json({ error: 'Order not found' });
       return res.json(data);
     }
 
