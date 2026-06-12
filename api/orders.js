@@ -3,6 +3,10 @@ const supabase = require('../lib/supabase');
 const { sendOrderConfirmation, sendVendorNotification } = require('../lib/email');
 const crypto = require('crypto');
 
+// The checkout pipeline lives in the database (place_marketplace_order RPC):
+// one atomic transaction covering stock locking, validation, pricing,
+// commission snapshot, audit logging and customer CRM. This handler only
+// validates shape, invokes it, and sends emails afterwards.
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -12,18 +16,18 @@ module.exports = async (req, res) => {
 
   try {
     if (req.method === 'GET') {
+      // Customer order lookup: requires order ID + matching phone
       const { orderId, phone } = req.query;
-
-      // Customers can only look up their own order: order ID + matching phone required
       if (!orderId || !phone) {
         return res.status(400).json({ error: 'Order ID and phone number required' });
       }
+      const norm = String(phone).replace(/\D/g, '').slice(-10);
 
       const { data, error } = await supabase
         .from('orders')
-        .select('order_id, status, items_json, total, delivery_address, created_at, updated_at')
+        .select('order_id, status, items_json, subtotal, delivery_fee, total, payment_method, payment_status, delivery_address, created_at, updated_at')
         .eq('order_id', orderId)
-        .eq('customer_phone', phone)
+        .eq('customer_phone', norm)
         .single();
 
       if (error || !data) return res.status(404).json({ error: 'Order not found' });
@@ -31,103 +35,59 @@ module.exports = async (req, res) => {
     }
 
     if (req.method === 'POST') {
-      const { action, orderId, status, items, customer } = req.body;
+      const { action } = req.body || {};
 
       if (action === 'place') {
-        if (!items || items.length === 0) {
-          return res.status(400).json({ error: 'No items in order' });
+        const { items, customer, payment_method, utr, idempotency_key } = req.body;
+
+        if (!Array.isArray(items) || !items.length) {
+          return res.status(400).json({ error: 'Your cart is empty.' });
+        }
+        if (!customer || typeof customer !== 'object') {
+          return res.status(400).json({ error: 'Customer details are required.' });
         }
 
-        const itemsByVendor = {};
-        for (const item of items) {
-          const vendorId = item.vendor_id || 'default';
-          if (!itemsByVendor[vendorId]) itemsByVendor[vendorId] = [];
-          itemsByVendor[vendorId].push(item);
+        // Server only forwards product ids + quantities; the database is the
+        // single source of truth for prices, vendors, fees and stock.
+        const lines = items.map(i => ({
+          id: i.id,
+          qty: Math.trunc(Number(i.qty ?? i.quantity)) || 0
+        }));
+        if (lines.some(l => !l.id || l.qty < 1)) {
+          return res.status(400).json({ error: 'Invalid items in cart.' });
         }
 
-        const orders = [];
-        const { data: existingCustomer } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('phone', customer.phone)
-          .single();
+        const idemKey = (typeof idempotency_key === 'string' && idempotency_key.length >= 16)
+          ? idempotency_key
+          : crypto.randomBytes(16).toString('hex');
 
-        let customerId = existingCustomer?.id;
-        if (!customerId) {
-          const { data: newCustomer } = await supabase
-            .from('customers')
-            .insert({ phone: customer.phone, name: customer.name, email: customer.email })
-            .select('id')
-            .single();
-          customerId = newCustomer?.id;
+        const { data, error } = await supabase.rpc('place_marketplace_order', {
+          p_customer: {
+            name: String(customer.name || '').trim(),
+            phone: String(customer.phone || '').trim(),
+            email: String(customer.email || '').trim().toLowerCase(),
+            address: String(customer.address || '').trim()
+          },
+          p_items: lines,
+          p_payment_method: payment_method === 'UPI' ? 'UPI' : 'COD',
+          p_utr: String(utr || '').trim(),
+          p_idempotency_key: idemKey
+        });
+
+        if (error) {
+          // RAISE EXCEPTION messages from the pipeline are customer-readable
+          return res.status(400).json({ error: error.message });
         }
 
-        for (const [vendorId, vendorItems] of Object.entries(itemsByVendor)) {
-          const orderId = 'ORD-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-          const itemTotal = vendorItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-          const deliveryFee = 30;
-          const total = itemTotal + deliveryFee;
-
-          const { error: orderError } = await supabase
-            .from('orders')
-            .insert({
-              order_id: orderId,
-              customer_id: customerId,
-              vendor_id: vendorId === 'default' ? null : vendorId,
-              items_json: JSON.stringify(vendorItems),
-              total,
-              status: 'pending',
-              customer_phone: customer.phone,
-              customer_email: customer.email,
-              customer_name: customer.name,
-              delivery_address: customer.address
-            });
-
-          if (orderError) throw orderError;
-          orders.push({ order_id: orderId, vendor_id: vendorId, total, items: vendorItems });
-
-          try {
-            await sendOrderConfirmation(customer.email, { order_id: orderId, items: vendorItems, total, status: 'pending' });
-
-            if (vendorId !== 'default') {
-              const { data: vendor } = await supabase
-                .from('vendors')
-                .select('email, name')
-                .eq('id', vendorId)
-                .single();
-
-              if (vendor) {
-                await sendVendorNotification(vendor.email, {
-                  order_id: orderId,
-                  items: vendorItems,
-                  total,
-                  customer_name: customer.name,
-                  customer_phone: customer.phone,
-                  delivery_address: customer.address
-                }, vendor.name);
-              }
-            }
-          } catch (emailError) {
-            console.error('Email send failed:', emailError);
-          }
+        // Post-transaction side effects (never block or fail the order)
+        if (!data.duplicate) {
+          notifyByEmail(data.orders, customer).catch(e => console.error('email failed:', e.message));
         }
 
-        return res.json({ success: true, orders });
+        return res.json(data);
       }
 
-      if (action === 'update-status') {
-        if (!orderId || !status) return res.status(400).json({ error: 'Order ID and status required' });
-
-        const { error } = await supabase
-          .from('orders')
-          .update({ status, updated_at: new Date().toISOString() })
-          .eq('order_id', orderId);
-
-        if (error) throw error;
-        return res.json({ success: true });
-      }
-
-      res.status(400).json({ error: 'Invalid action' });
+      return res.status(400).json({ error: 'Invalid action' });
     }
 
     res.status(405).json({ error: 'Method not allowed' });
@@ -135,3 +95,27 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+async function notifyByEmail(orders, customer) {
+  for (const o of orders || []) {
+    const { data: rows } = await supabase
+      .from('order_items')
+      .select('product_name, qty, unit_price, line_total')
+      .eq('order_id', o.order_id);
+    const items = (rows || []).map(r => ({ name: r.product_name, quantity: r.qty, price: r.unit_price }));
+
+    await sendOrderConfirmation(customer.email, {
+      order_id: o.order_id, items, total: o.total, status: 'pending'
+    }).catch(() => {});
+
+    const { data: vendor } = await supabase
+      .from('vendors').select('email, name').eq('id', o.vendor_id).single();
+    if (vendor) {
+      await sendVendorNotification(vendor.email, {
+        order_id: o.order_id, items, total: o.total,
+        customer_name: customer.name, customer_phone: customer.phone,
+        delivery_address: customer.address
+      }, vendor.name).catch(() => {});
+    }
+  }
+}

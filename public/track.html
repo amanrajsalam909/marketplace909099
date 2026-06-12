@@ -192,6 +192,7 @@
       } catch (_) {}
 
       const currentIdx = Math.max(0, STATUSES.findIndex(s => s.key === order.status));
+      const cancelled = order.status === 'cancelled';
 
       result.innerHTML = `
         <div class="card">
@@ -199,6 +200,11 @@
             <div class="order-id">${esc(order.order_id)}</div>
             <div class="order-total">${inr(order.total)}</div>
           </div>
+          ${order.payment_method ? `<div style="font-size:12px;color:var(--muted);margin:-12px 0 16px">${esc(order.payment_method)} · ${esc(order.payment_status || '')}</div>` : ''}
+          ${cancelled ? `
+            <div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:14px 16px;border-radius:10px;font-size:14px;font-weight:600">
+              This order was cancelled. Any reserved items have been released.
+            </div>` : `
           <ul class="timeline">
             ${STATUSES.map((s, i) => `
               <li class="step ${i < currentIdx ? 'done' : i === currentIdx ? 'current' : ''}">
@@ -208,7 +214,7 @@
                   ${i === currentIdx ? `<div class="step-hint">${s.hint}</div>` : ''}
                 </div>
               </li>`).join('')}
-          </ul>
+          </ul>`}
           ${items.length ? `
             <div class="items">
               ${items.map(i => `<div class="item-row"><span>${esc(i.name)} × ${i.quantity}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}

@@ -553,20 +553,25 @@
         return;
       }
 
-      content.innerHTML = '<div class="products-grid">' + list.map(p => `
-        <div class="product-card">
+      content.innerHTML = '<div class="products-grid">' + list.map(p => {
+        const out = typeof p.stock === 'number' && p.stock <= 0;
+        const low = !out && typeof p.stock === 'number' && p.stock <= 5;
+        return `
+        <div class="product-card" style="${out ? 'opacity:0.6' : ''}">
           <div class="product-image">${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}">` : '🛍️'}</div>
           <div class="product-body">
             <div class="product-category">${esc(p.category || 'General')}</div>
             <div class="product-name">${esc(p.name)}</div>
-            <div class="product-desc">${esc(p.description || '')}</div>
+            <div class="product-desc">${esc(p.description || '')}${low ? ' <span style="color:#d97706;font-weight:600">Only ' + p.stock + ' left!</span>' : ''}</div>
             <div class="product-footer">
               <div class="product-price">${inr(p.price)}</div>
-              <button class="add-btn" data-add="${p.id}">Add</button>
+              ${out
+                ? '<span style="font-size:12px;font-weight:700;color:#dc2626">Out of stock</span>'
+                : `<button class="add-btn" data-add="${p.id}">Add</button>`}
             </div>
           </div>
-        </div>
-      `).join('') + '</div>';
+        </div>`;
+      }).join('') + '</div>';
     }
 
     function addToCart(productId) {

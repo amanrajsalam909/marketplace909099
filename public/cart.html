@@ -321,16 +321,32 @@
       btn.disabled = true;
       btn.textContent = 'Placing your order…';
 
+      // One key per checkout attempt set: server guarantees a network retry
+      // can never create duplicate orders.
+      if (!sessionStorage.getItem('checkoutKey')) {
+        sessionStorage.setItem('checkoutKey',
+          (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)));
+      }
+
       try {
         const res = await fetch('/api/orders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'place', items: cart, customer: { name, phone, email, address } })
+          body: JSON.stringify({
+            action: 'place',
+            // Only ids + quantities: prices, fees and totals are computed
+            // server-side from the database.
+            items: cart.map(i => ({ id: i.id, qty: i.quantity })),
+            customer: { name, phone, email, address },
+            payment_method: 'COD',
+            idempotency_key: sessionStorage.getItem('checkoutKey')
+          })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Could not place the order. Please try again.');
 
         localStorage.removeItem('cart');
+        sessionStorage.removeItem('checkoutKey');
         renderSuccess(data.orders || [], phone);
       } catch (err) {
         showError(err.message);
@@ -348,7 +364,7 @@
           <p>A confirmation has been sent to your email. Save your order ID${orders.length > 1 ? 's' : ''} to track delivery.</p>
           ${orders.map(o => `
             <div class="order-line">
-              <span><b>${esc2(o.order_id)}</b></span>
+              <span><b>${esc2(o.order_id)}</b>${o.vendor_name ? '<br><span style="color:var(--muted);font-size:12px">' + esc2(o.vendor_name) + '</span>' : ''}</span>
               <span>${inr(o.total)}</span>
             </div>`).join('')}
           <p style="margin-top:8px">

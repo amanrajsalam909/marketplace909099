@@ -114,6 +114,14 @@
     .pill.preparing { background: #ffedd5; color: #9a3412; }
     .pill.ready     { background: #e0e7ff; color: #3730a3; }
     .pill.delivered { background: #d1fae5; color: #065f46; }
+    .pill.cancelled { background: #fee2e2; color: #991b1b; }
+    .pay-tag { font-size: 12px; color: var(--muted); font-weight: 600; }
+    .cancel-link {
+      background: none; border: none; color: var(--red);
+      font-size: 12px; font-weight: 600; font-family: inherit;
+      cursor: pointer; padding: 8px 4px;
+    }
+    .cancel-link:hover { text-decoration: underline; }
 
     .order-meta {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -258,6 +266,7 @@
         <button class="chip" data-status="preparing">Preparing</button>
         <button class="chip" data-status="ready">Out for Delivery</button>
         <button class="chip" data-status="delivered">Delivered</button>
+        <button class="chip" data-status="cancelled">Cancelled</button>
       </div>
       <div class="orders" id="ordersList"><div class="state">Loading orders…</div></div>
     </section>
@@ -276,7 +285,8 @@
             <div><label for="pName">Name</label><input id="pName" type="text" required></div>
             <div><label for="pCategory">Category</label><input id="pCategory" type="text" placeholder="e.g. Main Course" required></div>
             <div><label for="pPrice">Price (₹)</label><input id="pPrice" type="number" min="1" step="0.01" required></div>
-            <div><label for="pImage">Image URL (optional)</label><input id="pImage" type="url" placeholder="https://…"></div>
+            <div><label for="pStock">Stock (units available)</label><input id="pStock" type="number" min="0" step="1" value="0" required></div>
+            <div class="full"><label for="pImage">Image URL (optional)</label><input id="pImage" type="url" placeholder="https://…"></div>
             <div class="full"><label for="pDesc">Description</label><textarea id="pDesc" rows="2"></textarea></div>
           </div>
           <div class="form-actions">
@@ -294,7 +304,7 @@
 
   <script>
     const STATUS_FLOW = ['pending', 'confirmed', 'preparing', 'ready', 'delivered'];
-    const STATUS_LABELS = { pending: 'Pending', confirmed: 'Confirmed', preparing: 'Preparing', ready: 'Out for Delivery', delivered: 'Delivered' };
+    const STATUS_LABELS = { pending: 'Pending', confirmed: 'Confirmed', preparing: 'Preparing', ready: 'Out for Delivery', delivered: 'Delivered', cancelled: 'Cancelled' };
     const NEXT_LABEL = { pending: 'Confirm Order', confirmed: 'Start Preparing', preparing: 'Mark Out for Delivery', ready: 'Mark Delivered' };
 
     const token = localStorage.getItem('vendorToken');
@@ -376,16 +386,46 @@
               ${items.map(i => `<div class="oitem"><span>${esc(i.name)} × ${i.quantity}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}
             </div>
             <div class="order-bottom">
-              <div class="order-total">${inr(o.total)}</div>
-              ${o.status === 'delivered'
-                ? '<span class="done-tag">✓ Completed</span>'
-                : `<button class="advance-btn" data-advance="${esc(o.order_id)}" data-status="${esc(o.status)}">${NEXT_LABEL[o.status] || 'Advance'}</button>`}
+              <div>
+                <div class="order-total">${inr(o.total)}</div>
+                <div class="pay-tag">${esc(o.payment_method || 'COD')} · ${esc(o.payment_status || '')}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px">
+                ${['pending', 'confirmed'].includes(o.status)
+                  ? `<button class="cancel-link" data-cancel="${esc(o.order_id)}">Cancel order</button>` : ''}
+                ${o.status === 'delivered'
+                  ? '<span class="done-tag">✓ Completed</span>'
+                  : o.status === 'cancelled'
+                    ? '<span class="pay-tag">Stock restored</span>'
+                    : `<button class="advance-btn" data-advance="${esc(o.order_id)}" data-status="${esc(o.status)}">${NEXT_LABEL[o.status] || 'Advance'}</button>`}
+              </div>
             </div>
           </div>`;
       }).join('');
     }
 
     document.getElementById('ordersList').addEventListener('click', async e => {
+      const cancelBtn = e.target.closest('[data-cancel]');
+      if (cancelBtn) {
+        const reason = prompt('Cancel this order? The customer will be emailed and stock restored.\nOptional reason:');
+        if (reason === null) return;
+        try {
+          const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, action: 'cancel', orderId: cancelBtn.dataset.cancel, reason })
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) throw new Error(data.error || 'Cancel failed');
+          toast('Order cancelled, stock restored');
+          loadOrders();
+          loadProducts();
+        } catch (err) {
+          toast('Could not cancel: ' + err.message);
+        }
+        return;
+      }
+
       const btn = e.target.closest('[data-advance]');
       if (!btn) return;
       const next = STATUS_FLOW[STATUS_FLOW.indexOf(btn.dataset.status) + 1];
@@ -443,7 +483,13 @@
           <div class="p-thumb">${p.image_url ? `<img src="${esc(p.image_url)}" alt="">` : '🍽️'}</div>
           <div class="p-info">
             <div class="p-name">${esc(p.name)}</div>
-            <div class="p-meta">${esc(p.category || '')}</div>
+            <div class="p-meta">${esc(p.category || '')} · ${
+              p.stock <= 0
+                ? '<span style="color:var(--red);font-weight:700">Out of stock</span>'
+                : p.stock <= 5
+                  ? '<span style="color:var(--amber);font-weight:700">' + p.stock + ' left</span>'
+                  : p.stock + ' in stock'
+            }</div>
           </div>
           <div class="p-price">${inr(p.price)}</div>
           <button class="icon-btn" data-edit="${p.id}">Edit</button>
@@ -461,6 +507,7 @@
       document.getElementById('pName').value = product ? product.name : '';
       document.getElementById('pCategory').value = product ? (product.category || '') : '';
       document.getElementById('pPrice').value = product ? product.price : '';
+      document.getElementById('pStock').value = product ? (product.stock ?? 0) : 0;
       document.getElementById('pImage').value = product ? (product.image_url || '') : '';
       document.getElementById('pDesc').value = product ? (product.description || '') : '';
       formEl.classList.add('open');
@@ -484,6 +531,7 @@
         category: document.getElementById('pCategory').value.trim(),
         description: document.getElementById('pDesc').value.trim(),
         price: parseFloat(document.getElementById('pPrice').value),
+        stock: parseInt(document.getElementById('pStock').value, 10) || 0,
         image_url: document.getElementById('pImage').value.trim()
       };
 

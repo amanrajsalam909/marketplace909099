@@ -54,9 +54,20 @@ module.exports = async (req, res) => {
       if (action === 'orders') {
         const { data, error } = await supabase
           .from('orders')
-          .select('order_id, vendor_id, customer_name, customer_phone, total, status, created_at')
+          .select('order_id, vendor_id, customer_name, customer_phone, total, status, payment_method, payment_status, utr, commission_amount, created_at')
           .order('created_at', { ascending: false })
           .limit(100);
+        if (error) throw error;
+        return res.json(data);
+      }
+
+      if (action === 'pending-payments') {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('order_id, vendor_id, customer_name, customer_phone, total, status, utr, created_at')
+          .eq('payment_status', 'Pending Verification')
+          .neq('status', 'cancelled')
+          .order('created_at', { ascending: false });
         if (error) throw error;
         return res.json(data);
       }
@@ -141,6 +152,18 @@ module.exports = async (req, res) => {
           .eq('vendor_id', vendorId);
         if (error) throw error;
         return res.json({ success: true });
+      }
+
+      if (action === 'verify-payment') {
+        const { orderId, utr } = req.body;
+        if (!orderId) return res.status(400).json({ error: 'orderId required' });
+
+        const { data, error } = await supabase.rpc('verify_payment', {
+          p_order_id: orderId,
+          p_utr: String(utr || '').trim()
+        });
+        if (error) return res.status(400).json({ error: error.message });
+        return res.json(data);
       }
 
       // ---------- Categories ----------

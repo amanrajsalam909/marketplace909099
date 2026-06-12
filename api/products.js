@@ -37,6 +37,7 @@ module.exports = async (req, res) => {
         category: product.category || '',
         description: product.description || '',
         price: parseFloat(product.price) || 0,
+        stock: Math.max(0, Math.trunc(Number(product.stock)) || 0),
         image_url: product.imageUrl || product.image_url || '',
         active: product.active !== false
       };

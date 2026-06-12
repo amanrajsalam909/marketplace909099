@@ -1,6 +1,10 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
+const { sendStatusUpdate } = require('../lib/email');
 
+// Status changes are delegated to database state-machine functions
+// (advance_order_status / cancel_order): transitions are validated and
+// audit-logged atomically; cancellation restores stock in the same transaction.
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -9,65 +13,74 @@ module.exports = async (req, res) => {
   if (!guard(req, res)) return;
 
   try {
-    const { token, status } = req.query;
+    const token = req.method === 'GET' ? req.query.token : (req.body || {}).token;
+    const session = await validateVendorSession(token);
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
     if (req.method === 'GET') {
-      if (!token) return res.status(401).json({ error: 'Unauthorized' });
-
-      const session = await validateVendorSession(token);
-      if (!session) return res.status(401).json({ error: 'Unauthorized' });
+      const { status } = req.query;
 
       let query = supabase
         .from('orders')
-        .select('*')
+        .select('order_id, status, customer_name, customer_phone, delivery_address, items_json, subtotal, delivery_fee, total, payment_method, payment_status, commission_amount, created_at, updated_at')
         .eq('vendor_id', session.vendor_id);
 
-      if (status) {
-        query = query.eq('status', status);
-      }
+      if (status) query = query.eq('status', status);
 
-      const { data, error } = await query.order('created_at', { ascending: false });
+      const { data, error } = await query.order('created_at', { ascending: false }).limit(200);
       if (error) throw error;
 
-      const formattedOrders = data.map(order => ({
-        ...order,
-        items: order.items_json ? JSON.parse(order.items_json) : []
-      }));
-
-      return res.json(formattedOrders);
+      return res.json(data.map(o => ({
+        ...o,
+        items: typeof o.items_json === 'string' ? JSON.parse(o.items_json) : (o.items_json || [])
+      })));
     }
 
     if (req.method === 'POST') {
-      const { action, orderId, newStatus } = req.body;
+      const { action, orderId, newStatus, reason } = req.body;
+      if (!orderId) return res.status(400).json({ error: 'Order ID required' });
 
-      if (!token) return res.status(401).json({ error: 'Unauthorized' });
-
-      const session = await validateVendorSession(token);
-      if (!session) return res.status(401).json({ error: 'Unauthorized' });
-
-      if (action === 'update-status') {
-        if (!orderId || !newStatus) return res.status(400).json({ error: 'Order ID and status required' });
-
-        const { data: order } = await supabase
-          .from('orders')
-          .select('vendor_id')
-          .eq('order_id', orderId)
-          .single();
-
-        if (!order || order.vendor_id !== session.vendor_id) {
-          return res.status(403).json({ error: 'Forbidden' });
-        }
-
-        const { error } = await supabase
-          .from('orders')
-          .update({ status: newStatus, updated_at: new Date().toISOString() })
-          .eq('order_id', orderId);
-
-        if (error) throw error;
-        return res.json({ success: true });
+      // Ownership check: a vendor may only touch their own orders
+      const { data: order } = await supabase
+        .from('orders')
+        .select('vendor_id, customer_email')
+        .eq('order_id', orderId)
+        .single();
+      if (!order || order.vendor_id !== session.vendor_id) {
+        return res.status(403).json({ error: 'Forbidden' });
       }
 
-      res.status(400).json({ error: 'Invalid action' });
+      const actor = 'vendor:' + session.vendor_id;
+
+      if (action === 'update-status') {
+        if (!newStatus) return res.status(400).json({ error: 'New status required' });
+
+        const { data, error } = await supabase.rpc('advance_order_status', {
+          p_order_id: orderId,
+          p_new_status: newStatus,
+          p_actor: actor
+        });
+        if (error) return res.status(400).json({ error: error.message });
+
+        if (['confirmed', 'ready', 'delivered'].includes(newStatus)) {
+          sendStatusUpdate(order.customer_email, orderId, newStatus).catch(() => {});
+        }
+        return res.json(data);
+      }
+
+      if (action === 'cancel') {
+        const { data, error } = await supabase.rpc('cancel_order', {
+          p_order_id: orderId,
+          p_actor: actor,
+          p_reason: String(reason || '').slice(0, 300)
+        });
+        if (error) return res.status(400).json({ error: error.message });
+
+        sendStatusUpdate(order.customer_email, orderId, 'cancelled').catch(() => {});
+        return res.json(data);
+      }
+
+      return res.status(400).json({ error: 'Invalid action' });
     }
 
     res.status(405).json({ error: 'Method not allowed' });
