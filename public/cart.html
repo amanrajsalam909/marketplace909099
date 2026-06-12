@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopping Cart - Marketplace</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+    .header {
+      background: white;
+      padding: 16px 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .header a {
+      color: #4a90d9;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+    .cart-section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 16px;
+      border-bottom: 2px solid #f0f0f0;
+      padding-bottom: 12px;
+    }
+    .cart-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .item-details {
+      flex: 1;
+    }
+    .item-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+    .item-price {
+      font-size: 13px;
+      color: #666;
+      margin-top: 4px;
+    }
+    .item-quantity {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 20px;
+    }
+    .quantity-btn {
+      width: 24px;
+      height: 24px;
+      border: 1px solid #ddd;
+      background: white;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .quantity-btn:hover {
+      border-color: #4a90d9;
+      color: #4a90d9;
+    }
+    .item-total {
+      font-size: 14px;
+      font-weight: 600;
+      color: #4a90d9;
+      min-width: 60px;
+      text-align: right;
+    }
+    .remove-btn {
+      background: #fee;
+      color: #c33;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      margin-left: 12px;
+    }
+    .remove-btn:hover {
+      background: #fdd;
+    }
+    .vendor-group {
+      margin-bottom: 20px;
+      padding: 16px;
+      background: #f9f9f9;
+      border-radius: 6px;
+      border-left: 4px solid #4a90d9;
+    }
+    .vendor-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 12px;
+    }
+    .vendor-subtotal {
+      text-align: right;
+      font-size: 14px;
+      color: #666;
+      padding-top: 12px;
+      border-top: 1px solid #ddd;
+    }
+    .checkout-form {
+      display: grid;
+      gap: 12px;
+    }
+    .form-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .form-group.full {
+      grid-column: 1 / -1;
+    }
+    input {
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    input:focus {
+      outline: none;
+      border-color: #4a90d9;
+      box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.1);
+    }
+    .summary {
+      background: #f9f9f9;
+      padding: 16px;
+      border-radius: 6px;
+      margin-top: 16px;
+    }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 14px;
+      color: #666;
+    }
+    .summary-row.total {
+      border-top: 2px solid #ddd;
+      padding-top: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      color: #333;
+    }
+    .checkout-btn {
+      width: 100%;
+      padding: 14px;
+      background: #4a90d9;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 20px;
+      transition: background 0.2s;
+    }
+    .checkout-btn:hover {
+      background: #357abd;
+    }
+    .checkout-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .empty-cart {
+      text-align: center;
+      padding: 40px 20px;
+      color: #999;
+    }
+    .empty-cart a {
+      color: #4a90d9;
+      text-decoration: none;
+      margin-top: 20px;
+      display: inline-block;
+    }
+    .error {
+      background: #fee;
+      color: #c33;
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="index.html">← Back to Shopping</a>
+  </div>
+
+  <div class="container">
+    <h1>🛒 Shopping Cart</h1>
+
+    <div id="error" class="error"></div>
+
+    <div id="cartContent">
+      <!-- Cart items will be populated here -->
+    </div>
+
+    <div id="checkoutSection" style="display:none;">
+      <div class="cart-section">
+        <div class="section-title">Delivery Details</div>
+        <form id="checkoutForm" onsubmit="handleCheckout(event)" class="checkout-form">
+          <div class="form-group">
+            <input type="text" placeholder="Your Name" id="customerName" required>
+            <input type="tel" placeholder="Phone Number" id="customerPhone" required>
+          </div>
+          <input type="email" placeholder="Email Address" id="customerEmail" class="form-group full" required>
+          <input type="text" placeholder="Delivery Address" id="customerAddress" class="form-group full" required>
+
+          <div class="summary">
+            <div class="summary-row">
+              <span>Subtotal:</span>
+              <span>₹<span id="subtotal">0</span></span>
+            </div>
+            <div class="summary-row">
+              <span>Delivery Fee:</span>
+              <span>₹<span id="deliveryFee">30</span> per vendor</span>
+            </div>
+            <div class="summary-row total">
+              <span>Total:</span>
+              <span>₹<span id="total">0</span></span>
+            </div>
+          </div>
+
+          <button type="submit" class="checkout-btn" id="checkoutBtn">Place Order</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = '';
+    let cart = JSON.parse(localStorage.getItem('cart')) || [];
+
+    function groupByVendor() {
+      const groups = {};
+      for (const item of cart) {
+        const vendorId = item.vendor_id || 'default';
+        if (!groups[vendorId]) groups[vendorId] = [];
+        groups[vendorId].push(item);
+      }
+      return groups;
+    }
+
+    function renderCart() {
+      const container = document.getElementById('cartContent');
+
+      if (!cart.length) {
+        container.innerHTML = '<div class="empty-cart">Your cart is empty.<br><a href="index.html">Continue Shopping</a></div>';
+        document.getElementById('checkoutSection').style.display = 'none';
+        return;
+      }
+
+      const groups = groupByVendor();
+      let html = '<div class="cart-section">';
+      let totalAmount = 0;
+
+      for (const [vendorId, items] of Object.entries(groups)) {
+        const vendorName = vendorId === 'default' ? 'General' : 'Vendor';
+        let subtotal = 0;
+
+        html += `<div class="vendor-group">
+          <div class="vendor-name">${vendorName}</div>`;
+
+        for (const item of items) {
+          const itemTotal = item.price * item.quantity;
+          subtotal += itemTotal;
+          html += `
+            <div class="cart-item">
+              <div class="item-details">
+                <div class="item-name">${item.name}</div>
+                <div class="item-price">₹${item.price} each</div>
+              </div>
+              <div class="item-quantity">
+                <button type="button" class="quantity-btn" onclick="updateQuantity('${item.id}', '${item.vendor_id}', -1)">−</button>
+                <span>${item.quantity}</span>
+                <button type="button" class="quantity-btn" onclick="updateQuantity('${item.id}', '${item.vendor_id}', 1)">+</button>
+              </div>
+              <div class="item-total">₹${itemTotal}</div>
+              <button type="button" class="remove-btn" onclick="removeItem('${item.id}', '${item.vendor_id}')">Remove</button>
+            </div>
+          `;
+        }
+
+        html += `
+          <div class="vendor-subtotal">Subtotal: ₹${subtotal} + ₹30 delivery = ₹${subtotal + 30}</div>
+        </div>`;
+
+        totalAmount += subtotal + 30;
+      }
+
+      html += '</div>';
+      container.innerHTML = html;
+
+      document.getElementById('subtotal').textContent = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      document.getElementById('total').textContent = totalAmount;
+      document.getElementById('checkoutSection').style.display = 'block';
+    }
+
+    function updateQuantity(productId, vendorId, change) {
+      const item = cart.find(i => i.id === productId && i.vendor_id === vendorId);
+      if (item) {
+        item.quantity += change;
+        if (item.quantity <= 0) {
+          removeItem(productId, vendorId);
+        } else {
+          localStorage.setItem('cart', JSON.stringify(cart));
+          renderCart();
+        }
+      }
+    }
+
+    function removeItem(productId, vendorId) {
+      cart = cart.filter(i => !(i.id === productId && i.vendor_id === vendorId));
+      localStorage.setItem('cart', JSON.stringify(cart));
+      renderCart();
+    }
+
+    async function handleCheckout(event) {
+      event.preventDefault();
+
+      const name = document.getElementById('customerName').value;
+      const phone = document.getElementById('customerPhone').value;
+      const email = document.getElementById('customerEmail').value;
+      const address = document.getElementById('customerAddress').value;
+      const btn = document.getElementById('checkoutBtn');
+      const errorDiv = document.getElementById('error');
+
+      btn.disabled = true;
+      btn.textContent = 'Processing...';
+
+      try {
+        const res = await fetch(`${API_URL}/api/orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'place',
+            items: cart,
+            customer: { name, phone, email, address }
+          })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error || 'Checkout failed');
+
+        localStorage.removeItem('cart');
+        alert('Order placed successfully! Check your email for confirmation.');
+        window.location.href = 'index.html';
+      } catch (e) {
+        errorDiv.textContent = e.message;
+        errorDiv.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Place Order';
+      }
+    }
+
+    renderCart();
+  </script>
+</body>
+</html>

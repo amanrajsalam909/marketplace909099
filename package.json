@@ -1,0 +1,18 @@
+{
+  "name": "marketplace909099",
+  "version": "1.0.0",
+  "description": "Multi-vendor food marketplace for Rajkot",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["marketplace", "food", "rajkot"],
+  "author": "Aman Raj Salam",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.106.1",
+    "dotenv": "^17.4.2",
+    "nodemailer": "^8.0.7",
+    "resend": "^6.12.3"
+  }
+}
