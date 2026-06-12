@@ -117,6 +117,19 @@
     .field input:focus, .field textarea:focus {
       outline: none; border-color: var(--primary); background: var(--card);
     }
+    .field-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    /* Area autocomplete (OpenStreetMap) */
+    .sug-wrap { position: relative; }
+    .sug-list {
+      position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+      box-shadow: var(--shadow-lg); z-index: 60; max-height: 220px; overflow-y: auto;
+    }
+    .sug-item { padding: 9px 12px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; }
+    .sug-item:last-child { border-bottom: none; }
+    .sug-item:hover { background: var(--bg); }
+    .sug-credit { font-size: 10px; color: var(--muted); margin-top: 3px; }
     .totals { margin: 16px 0; padding-top: 14px; border-top: 1px dashed var(--border); }
     .trow { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 7px; }
     .trow.grand {
@@ -317,8 +330,36 @@
                 <input id="cEmail" type="email" autocomplete="email" required>
               </div>
               <div class="field">
-                <label for="cAddress">Delivery address</label>
-                <textarea id="cAddress" rows="2" autocomplete="street-address" required></textarea>
+                <label for="aFlat">Flat / House No.</label>
+                <input id="aFlat" type="text" placeholder="e.g. Flat 302 or House No. 12">
+              </div>
+              <div class="field">
+                <label for="aBldg">Building / Society name</label>
+                <input id="aBldg" type="text" placeholder="e.g. Shree Krishna Residency (optional)">
+              </div>
+              <div class="field">
+                <label for="aStreet">Street / Road / Lane</label>
+                <input id="aStreet" type="text" placeholder="e.g. Yagnik Road (optional)">
+              </div>
+              <div class="field sug-wrap">
+                <label for="aArea">Area / Locality / Colony / Sector</label>
+                <input id="aArea" type="text" placeholder="start typing for suggestions…" autocomplete="off">
+                <div class="sug-list" id="sugList" style="display:none"></div>
+                <div class="sug-credit">Suggestions © OpenStreetMap contributors</div>
+              </div>
+              <div class="field">
+                <label for="aLandmark">Landmark</label>
+                <input id="aLandmark" type="text" placeholder="e.g. near Race Course (optional)">
+              </div>
+              <div class="field-2col">
+                <div class="field">
+                  <label for="aCity">City</label>
+                  <input id="aCity" type="text" value="Rajkot">
+                </div>
+                <div class="field">
+                  <label for="aPin">PIN Code</label>
+                  <input id="aPin" type="text" inputmode="numeric" maxlength="6" placeholder="e.g. 360001">
+                </div>
               </div>
               <div class="field">
                 <label>Payment method</label>
@@ -362,6 +403,18 @@
         if (cust.email) document.getElementById('cEmail').value = cust.email;
       }
 
+      // Restore whatever was typed before this re-render (and the saved
+      // address from the last order) — re-rendering must not eat input
+      Object.entries(formVals).forEach(([id, v]) => {
+        if (id === 'payMethod') return;
+        const f = document.getElementById(id);
+        if (f) f.value = v;
+      });
+      if (formVals.payMethod === 'UPI' && upiOk) {
+        document.querySelector('input[name="payMethod"][value="UPI"]').checked = true;
+        document.getElementById('upiBox').style.display = 'block';
+      }
+
       document.querySelectorAll('input[name="payMethod"]').forEach(r =>
         r.addEventListener('change', () => {
           document.getElementById('upiBox').style.display =
@@ -374,7 +427,67 @@
       });
     }
 
+    // Typed form values survive re-renders; seeded with the address used on
+    // the customer's last order
+    let formVals = JSON.parse(localStorage.getItem('savedAddress') || '{}');
+
+    view.addEventListener('input', e => {
+      if (!e.target.id) return;
+      if (e.target.id === 'aPin') e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+      formVals[e.target.id] = e.target.value;
+      if (e.target.id === 'aArea') areaSuggest(e.target.value);
+    });
+    view.addEventListener('change', e => {
+      if (e.target.name === 'payMethod') formVals.payMethod = e.target.value;
+    });
+
+    /* ---- Area suggestions via OpenStreetMap (Nominatim) — optional helper;
+       picking one fills area, city and PIN. All fields stay editable. ---- */
+    let sugTimer, sugItems = [];
+
+    function areaSuggest(q) {
+      clearTimeout(sugTimer);
+      const hide = () => { const l = document.getElementById('sugList'); if (l) l.style.display = 'none'; };
+      if (!q || q.trim().length < 3) return hide();
+      sugTimer = setTimeout(async () => {
+        try {
+          const city = (document.getElementById('aCity') || {}).value.trim() || 'Rajkot';
+          const res = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=in&limit=5&q='
+            + encodeURIComponent(q.trim() + ', ' + city));
+          sugItems = res.ok ? await res.json() : [];
+          const el = document.getElementById('sugList');
+          if (!el) return;
+          if (!sugItems.length) return hide();
+          el.innerHTML = sugItems.map((s, i) => `<div class="sug-item" data-sug="${i}">📍 ${esc(s.display_name)}</div>`).join('');
+          el.style.display = 'block';
+        } catch (_) { hide(); }
+      }, 450);
+    }
+
+    function setField(id, v) {
+      const el = document.getElementById(id);
+      if (el && v) { el.value = v; formVals[id] = v; }
+    }
+
     view.addEventListener('click', e => {
+      const sug = e.target.closest('[data-sug]');
+      if (sug) {
+        const s = sugItems[+sug.dataset.sug];
+        if (s) {
+          const a = s.address || {};
+          setField('aArea', a.suburb || a.neighbourhood || a.residential || a.quarter || a.village || a.hamlet || s.name);
+          setField('aCity', a.city || a.town || a.village || a.state_district);
+          setField('aPin', a.postcode);
+          if (a.road && !document.getElementById('aStreet').value.trim()) setField('aStreet', a.road);
+        }
+        document.getElementById('sugList').style.display = 'none';
+        return;
+      }
+      if (!e.target.closest('.sug-wrap')) {
+        const l = document.getElementById('sugList');
+        if (l) l.style.display = 'none';
+      }
+
       const inc = e.target.closest('[data-inc]');
       const dec = e.target.closest('[data-dec]');
       const del = e.target.closest('[data-del]');
@@ -405,11 +518,28 @@
       const name = document.getElementById('cName').value.trim();
       const phone = document.getElementById('cPhone').value.trim();
       const email = document.getElementById('cEmail').value.trim();
-      const address = document.getElementById('cAddress').value.trim();
 
-      if (!name || !phone || !email || !address) return showError('Please fill in all the delivery details.');
+      const flat = document.getElementById('aFlat').value.trim();
+      const bldg = document.getElementById('aBldg').value.trim();
+      const street = document.getElementById('aStreet').value.trim();
+      const area = document.getElementById('aArea').value.trim();
+      const landmark = document.getElementById('aLandmark').value.trim();
+      const city = document.getElementById('aCity').value.trim();
+      const pin = document.getElementById('aPin').value.trim();
+
+      if (!name || !phone || !email) return showError('Please fill in your name, phone and email.');
       if (!/^\d{10}$/.test(phone.replace(/\D/g, '').slice(-10))) return showError('Please enter a valid 10-digit phone number.');
       if (!/^\S+@\S+\.\S+$/.test(email)) return showError('Please enter a valid email address.');
+      if (!flat) return showError('Please enter your flat or house number.');
+      if (!area) return showError('Please enter your area / locality.');
+      if (!city) return showError('Please enter your city.');
+      if (!/^[1-9]\d{5}$/.test(pin)) return showError('Please enter a valid 6-digit PIN code.');
+
+      const address = [
+        flat, bldg, street, area,
+        landmark ? 'Near ' + landmark : '',
+        city + ' - ' + pin
+      ].filter(Boolean).join(', ');
 
       // Pre-flight checks mirrored from the server pipeline (better UX; the
       // database remains the final authority)
@@ -457,6 +587,10 @@
 
         localStorage.removeItem('cart');
         sessionStorage.removeItem('checkoutKey');
+        localStorage.setItem('savedAddress', JSON.stringify({
+          aFlat: flat, aBldg: bldg, aStreet: street, aArea: area,
+          aLandmark: landmark, aCity: city, aPin: pin
+        }));
         renderSuccess(data.orders || [], phone);
       } catch (err) {
         showError(err.message);
