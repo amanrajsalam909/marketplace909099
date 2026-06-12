@@ -33,6 +33,33 @@ module.exports = async (req, res) => {
         return res.json(data || []);
       }
 
+      // Delivery OTP for the tracking page — ONLY the logged-in order owner
+      // may see it (otherwise the delivery partner could read it themselves
+      // and fake the handover).
+      if (req.query.deliveryOtp) {
+        const ordId = req.query.deliveryOtp;
+        const { data: ord } = await supabase
+          .from('orders')
+          .select('order_id, status, customer_phone')
+          .eq('order_id', ordId)
+          .single();
+        if (!ord || ord.status !== 'ready') return res.json({ available: false });
+
+        const session = await validateCustomerSession(req.query.token);
+        if (!session) return res.json({ authRequired: true });
+        if (session.phone !== ord.customer_phone) return res.json({ notOwner: true });
+
+        const { data: otpRow } = await supabase
+          .from('delivery_otps')
+          .select('otp, expires_at')
+          .eq('order_id', ordId)
+          .single();
+        if (!otpRow || new Date(otpRow.expires_at) < new Date()) {
+          return res.json({ available: false });
+        }
+        return res.json({ available: true, otp: otpRow.otp });
+      }
+
       // Customer order lookup: requires order ID + matching phone
       const { orderId, phone } = req.query;
       if (!orderId || !phone) {

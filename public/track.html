@@ -221,6 +221,7 @@
             </div>` : ''}
           ${order.delivery_address ? `<div class="addr">📍 Delivering to: ${esc(order.delivery_address)}</div>` : ''}
         </div>
+        ${order.status === 'ready' ? '<div id="otpSlot"></div>' : ''}
         ${order.status === 'delivered' ? `
         <div class="card" id="reviewCard">
           <h3 style="font-size:15px;font-weight:700;color:var(--dark);margin-bottom:10px">⭐ Rate this order</h3>
@@ -238,6 +239,47 @@
         </div>`;
 
       wireFeedback(order.order_id);
+      if (order.status === 'ready') loadDeliveryOtp(order.order_id);
+    }
+
+    // Delivery code: shown only to the signed-in order owner. Falls back to
+    // pointing at the email copy for guests.
+    async function loadDeliveryOtp(orderId) {
+      const slot = document.getElementById('otpSlot');
+      if (!slot) return;
+      const cust = JSON.parse(localStorage.getItem('custSession') || 'null');
+
+      const note = msg => {
+        slot.innerHTML = `<div class="card" style="font-size:13px;color:var(--muted)">${msg}</div>`;
+      };
+
+      try {
+        const res = await fetch('/api/orders?deliveryOtp=' + encodeURIComponent(orderId)
+          + (cust ? '&token=' + encodeURIComponent(cust.token) : ''));
+        const d = await res.json();
+
+        if (d.available && d.otp) {
+          slot.innerHTML = `
+            <div class="card" style="text-align:center;border:2px solid var(--primary)">
+              <div style="font-size:13px;font-weight:700;color:var(--dark);margin-bottom:8px">🔐 Your delivery code</div>
+              <div style="font-size:36px;font-weight:800;letter-spacing:10px;color:var(--primary)" id="otpVal">${esc(d.otp)}</div>
+              <button id="copyOtp" style="margin-top:10px;border:1px solid var(--border);background:#fff;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">Copy code</button>
+              <div style="font-size:12px;color:var(--muted);margin-top:10px">Give this code to the delivery partner <b>only when your order is in your hands</b>.</div>
+            </div>`;
+          document.getElementById('copyOtp').addEventListener('click', () => {
+            navigator.clipboard.writeText(d.otp).then(() => {
+              const b = document.getElementById('copyOtp');
+              b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy code', 1500);
+            });
+          });
+        } else if (d.authRequired) {
+          note('🔐 Your delivery code was emailed to you. To also see it here, <a href="/" style="color:var(--primary)">sign in on the home page</a> with the same phone number, then track again.');
+        } else if (d.notOwner) {
+          note('🔐 The delivery code is only visible to the account that placed this order. Check the order email instead.');
+        } else {
+          note('🔐 Your delivery code was sent to your email. Ask the shop to resend it if you can\'t find it.');
+        }
+      } catch (_) { /* non-critical */ }
     }
 
     let chosenRating = 0;
