@@ -799,7 +799,9 @@
         }).join('') : '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">No orders yet.</div>';
 
         openModal('My Orders', rows + `
-          <button id="soBtn" style="width:100%;padding:10px;background:#fff;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:6px">Sign Out</button>`);
+          <button id="addrBtn" style="width:100%;padding:10px;background:#fff;color:var(--dark);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:6px">📍 My Addresses</button>
+          <button id="soBtn" style="width:100%;padding:10px;background:#fff;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:8px">Sign Out</button>`);
+        document.getElementById('addrBtn').addEventListener('click', showMyAddresses);
         document.getElementById('soBtn').addEventListener('click', () => { signOut(); closeModal(); });
         document.querySelectorAll('[data-mycancel]').forEach(a => a.addEventListener('click', async e => {
           e.preventDefault();
@@ -815,6 +817,113 @@
       } catch (e) {
         openModal('My Orders', '<div style="text-align:center;color:#b91c1c;padding:20px;font-size:13px">Could not load orders.</div>');
       }
+    }
+
+    /* ---------- My Addresses (Home / Office / Other) ---------- */
+    const ADDR_LABELS = ['Home', 'Office', 'Other'];
+    const ADDR_ICONS = { Home: '🏠', Office: '🏢', Other: '📍' };
+    const composeAddr = a => [a.flat, a.building, a.street, a.area,
+      a.landmark ? 'Near ' + a.landmark : '',
+      (a.city || '') + (a.pin ? ' - ' + a.pin : '')].filter(Boolean).join(', ');
+
+    async function custApi(body) {
+      const res = await fetch('/api/customer-auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: cust.token, ...body })
+      });
+      return { res, data: await res.json() };
+    }
+
+    async function showMyAddresses() {
+      openModal('My Addresses', '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">Loading…</div>');
+      try {
+        const { res, data } = await custApi({ action: 'get-addresses' });
+        if (res.status === 401) { signOut(); showSignIn(); return; }
+        if (!res.ok) throw new Error(data.error || 'Could not load addresses.');
+        renderAddressList(data.addresses || {});
+      } catch (e) {
+        openModal('My Addresses', `<div style="text-align:center;color:#b91c1c;padding:20px;font-size:13px">${esc(e.message)}</div>`);
+      }
+    }
+
+    function renderAddressList(book) {
+      // Keep the cart's copy in sync so chips update immediately
+      localStorage.setItem('addressBook', JSON.stringify(book));
+      const rows = ADDR_LABELS.map(l => {
+        const a = book[l];
+        return `
+        <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <b style="font-size:13px;color:var(--dark)">${ADDR_ICONS[l]} ${l}</b>
+            <span>
+              <a href="#" data-addr-edit="${l}" style="font-size:12px;color:var(--primary);font-weight:600;text-decoration:none">${a ? 'Edit' : '＋ Add'}</a>
+              ${a ? `<a href="#" data-addr-del="${l}" style="font-size:12px;color:#dc2626;font-weight:600;text-decoration:none;margin-left:12px">Delete</a>` : ''}
+            </span>
+          </div>
+          ${a
+            ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5">${esc(composeAddr(a))}</div>`
+            : '<div style="font-size:12px;color:#cbd5e1;margin-top:6px">Not saved yet</div>'}
+        </div>`;
+      }).join('');
+      openModal('My Addresses', rows + `
+        <p style="font-size:11px;color:var(--muted);margin:2px 0 10px">Saved addresses appear at checkout — tap one there to fill the delivery form.</p>
+        <button id="addrBack" style="width:100%;padding:10px;background:#fff;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">← Back to My Orders</button>`);
+      document.querySelectorAll('[data-addr-edit]').forEach(el => el.addEventListener('click', e => {
+        e.preventDefault();
+        showAddressForm(el.dataset.addrEdit, book[el.dataset.addrEdit] || {});
+      }));
+      document.querySelectorAll('[data-addr-del]').forEach(el => el.addEventListener('click', async e => {
+        e.preventDefault();
+        const l = el.dataset.addrDel;
+        if (!confirm('Delete your saved ' + l + ' address?')) return;
+        try {
+          const { res, data } = await custApi({ action: 'delete-address', label: l });
+          if (!res.ok) throw new Error(data.error || 'Could not delete.');
+          toast(l + ' address deleted');
+          renderAddressList(data.addresses || {});
+        } catch (err) { toast(err.message); }
+      }));
+      document.getElementById('addrBack').addEventListener('click', showMyOrders);
+    }
+
+    function showAddressForm(label, a) {
+      openModal((a.flat ? 'Edit ' : 'Add ') + label + ' Address', `
+        <div id="mErr" style="${ERRB}"></div>
+        <input id="adFlat" placeholder="Flat / House No. *" value="${esc(a.flat || '')}" style="${FIELD}">
+        <input id="adBldg" placeholder="Building / Society name" value="${esc(a.building || '')}" style="${FIELD}">
+        <input id="adStreet" placeholder="Street / Road / Lane" value="${esc(a.street || '')}" style="${FIELD}">
+        <input id="adArea" placeholder="Area / Locality / Colony / Sector *" value="${esc(a.area || '')}" style="${FIELD}">
+        <input id="adLandmark" placeholder="Landmark (optional)" value="${esc(a.landmark || '')}" style="${FIELD}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <input id="adCity" placeholder="City *" value="${esc(a.city || 'Rajkot')}" style="${FIELD}">
+          <input id="adPin" placeholder="PIN Code *" inputmode="numeric" maxlength="6" value="${esc(a.pin || '')}" style="${FIELD}">
+        </div>
+        <button id="adSave" style="${PBTN}">Save ${label} Address</button>
+        <p style="text-align:center;margin-top:12px"><a href="#" id="adBack" style="font-size:12px;color:var(--muted)">← Back to addresses</a></p>`);
+      document.getElementById('adBack').addEventListener('click', e => { e.preventDefault(); showMyAddresses(); });
+      document.getElementById('adPin').addEventListener('input', e => {
+        e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+      });
+      document.getElementById('adSave').addEventListener('click', async () => {
+        const v = id => document.getElementById(id).value.trim();
+        const parts = {
+          flat: v('adFlat'), building: v('adBldg'), street: v('adStreet'),
+          area: v('adArea'), landmark: v('adLandmark'), city: v('adCity'), pin: v('adPin')
+        };
+        if (!parts.flat || !parts.area || !parts.city) return mErr('Please fill in flat/house number, area and city.');
+        if (!/^[1-9]\d{5}$/.test(parts.pin)) return mErr('Please enter a valid 6-digit PIN code.');
+        const btn = document.getElementById('adSave');
+        btn.disabled = true; btn.textContent = 'Saving…';
+        try {
+          const { res, data } = await custApi({ action: 'save-address', label, address: parts });
+          if (!res.ok) throw new Error(data.error || 'Could not save the address.');
+          toast(label + ' address saved');
+          renderAddressList(data.addresses || {});
+        } catch (err) {
+          mErr(err.message);
+          btn.disabled = false; btn.textContent = 'Save ' + label + ' Address';
+        }
+      });
     }
 
     function signOut() {
