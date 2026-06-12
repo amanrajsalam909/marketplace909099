@@ -518,7 +518,7 @@
           </div>
           <div class="vendor-body">
             <div class="vendor-name">${esc(v.name)}</div>
-            <div class="vendor-meta">${v.categories ? esc((v.categories.icon || '') + ' ' + v.categories.name) + ' · ' : ''}📍 ${esc(v.address || 'Rajkot')}</div>
+            <div class="vendor-meta">${v.categories ? esc((v.categories.icon || '') + ' ' + v.categories.name) + ' · ' : ''}📍 ${esc(v.address || 'Rajkot')}${v.is_open === false ? ' · <span style="color:#dc2626;font-weight:700">Closed</span>' : ''}</div>
             <div class="vendor-desc">${esc(v.description || 'Quality products from a local Rajkot business.')}</div>
           </div>
         </div>

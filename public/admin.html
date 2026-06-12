@@ -205,6 +205,7 @@
       <button class="tab active" data-tab="vendors">Vendors</button>
       <button class="tab" data-tab="categories">Categories</button>
       <button class="tab" data-tab="orders">Orders</button>
+      <button class="tab" data-tab="payments">Payments</button>
       <button class="tab" data-tab="settings">Settings</button>
     </div>
 
@@ -247,6 +248,15 @@
       <div class="card">
         <h3>Recent orders (all vendors)</h3>
         <div class="table-wrap" id="ordersTable"><div class="state">Loading orders…</div></div>
+      </div>
+    </section>
+
+    <!-- PAYMENTS -->
+    <section class="panel" id="panel-payments">
+      <div class="card">
+        <h3>📲 UPI payments awaiting verification</h3>
+        <p style="font-size:13px;color:var(--muted);margin:-6px 0 14px">Match the UTR with your bank/UPI app, then verify. Verifying auto-confirms a pending order and emails the customer.</p>
+        <div id="paymentsList"><div class="state">Loading…</div></div>
       </div>
     </section>
 
@@ -577,6 +587,52 @@
       }
     }
 
+    /* ---------- Payments ---------- */
+    async function loadPayments() {
+      try {
+        const pays = await apiGet('pending-payments');
+        const el = document.getElementById('paymentsList');
+        if (!pays.length) {
+          el.innerHTML = '<div class="state">No payments waiting for verification. ✅</div>';
+          return;
+        }
+        const vendorName = id => (vendors.find(v => v.id === id) || {}).name || '—';
+        el.innerHTML = pays.map(p => `
+          <div class="list-row">
+            <div class="row-info">
+              <div class="row-title">${esc(p.order_id)} · ${inr(p.total)}</div>
+              <div class="row-sub">
+                ${esc(vendorName(p.vendor_id))} · ${esc(p.customer_name)} (${esc(p.customer_phone)})
+                ${p.utr ? ' · Customer UTR: <b>' + esc(p.utr) + '</b>' : ' · <i>no UTR given</i>'}
+              </div>
+            </div>
+            <input type="text" placeholder="UTR (optional)" value="${esc(p.utr || '')}"
+                   id="utr-${esc(p.order_id)}"
+                   style="width:170px;padding:8px 10px;font-size:13px">
+            <button class="btn btn-primary btn-sm" data-verify="${esc(p.order_id)}">✓ Verify Payment</button>
+          </div>`).join('');
+      } catch (e) {
+        document.getElementById('paymentsList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    document.getElementById('paymentsList').addEventListener('click', async e => {
+      const btn = e.target.closest('[data-verify]');
+      if (!btn) return;
+      const orderId = btn.dataset.verify;
+      if (!confirm('Verify this payment? The order will be confirmed and the customer notified.')) return;
+      btn.disabled = true;
+      try {
+        await apiPost({ action: 'verify-payment', orderId, utr: (document.getElementById('utr-' + orderId) || {}).value || '' });
+        toast('Payment verified — order confirmed');
+        loadPayments();
+        loadStats();
+      } catch (err) {
+        toast(err.message);
+        btn.disabled = false;
+      }
+    });
+
     /* ---------- Settings ---------- */
     document.getElementById('pwForm').addEventListener('submit', async e => {
       e.preventDefault();
@@ -599,6 +655,7 @@
         tab.classList.add('active');
         document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
         if (tab.dataset.tab === 'orders') loadOrders();
+        if (tab.dataset.tab === 'payments') loadPayments();
       });
     });
 

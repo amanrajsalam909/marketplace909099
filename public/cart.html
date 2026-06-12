@@ -180,9 +180,21 @@
   </main>
 
   <script>
-    const DELIVERY_FEE = 30;
     let cart = JSON.parse(localStorage.getItem('cart') || '[]');
     const view = document.getElementById('view');
+
+    // Per-shop commerce settings (delivery fee, min order, COD/UPI) — display
+    // only; the server pipeline independently enforces all of these.
+    let shopMeta = {};
+    async function loadMeta() {
+      try {
+        const res = await fetch('/api/marketplace?action=vendors');
+        (await res.json()).forEach(v => { shopMeta[v.id] = v; });
+      } catch (_) {}
+      render();
+    }
+    const feeFor = vid => Number(shopMeta[vid]?.delivery_fee ?? 30);
+    const minFor = vid => Number(shopMeta[vid]?.min_order ?? 0);
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const inr = n => '₹' + Number(n).toLocaleString('en-IN');
@@ -210,12 +222,21 @@
       }
 
       const g = groups();
-      const vendorCount = Object.keys(g).length;
+      const shopIds = Object.keys(g);
+      const vendorCount = shopIds.length;
       const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
-      const delivery = vendorCount * DELIVERY_FEE;
+      const delivery = shopIds.reduce((s, vid) => s + feeFor(vid), 0);
+
+      // UPI only offered for single-shop carts where the shop has a UPI ID
+      const upiShop = vendorCount === 1 ? shopMeta[shopIds[0]] : null;
+      const upiOk = !!(upiShop && upiShop.upi_id);
+      const codBlocked = shopIds.filter(vid => shopMeta[vid] && shopMeta[vid].accepts_cod === false);
 
       const groupsHtml = Object.entries(g).map(([vid, grp]) => {
         const gSub = grp.items.reduce((s, i) => s + i.price * i.quantity, 0);
+        const fee = feeFor(vid);
+        const minO = minFor(vid);
+        const short = minO > gSub ? minO - gSub : 0;
         return `
           <div class="vendor-group">
             <div class="vendor-head">
@@ -240,7 +261,8 @@
                 <button type="button" class="remove" data-del="${i.idx}" aria-label="Remove">✕</button>
               </div>
             `).join('')}
-            <div class="group-total">Subtotal ${inr(gSub)} + ${inr(DELIVERY_FEE)} delivery = <b>${inr(gSub + DELIVERY_FEE)}</b></div>
+            ${short > 0 ? `<div style="background:#fef3c7;color:#92400e;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:600;margin:8px 0">Add ${inr(short)} more — this shop's minimum order is ${inr(minO)}.</div>` : ''}
+            <div class="group-total">Subtotal ${inr(gSub)} + ${inr(fee)} delivery = <b>${inr(gSub + fee)}</b></div>
           </div>`;
       }).join('');
 
@@ -267,9 +289,30 @@
                 <label for="cAddress">Delivery address</label>
                 <textarea id="cAddress" rows="2" autocomplete="street-address" required></textarea>
               </div>
+              <div class="field">
+                <label>Payment method</label>
+                <div style="display:flex;gap:8px">
+                  <label style="flex:1;display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;padding:11px 12px;cursor:pointer;font-size:13px;font-weight:600">
+                    <input type="radio" name="payMethod" value="COD" checked> 💵 Cash on Delivery
+                  </label>
+                  <label style="flex:1;display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;padding:11px 12px;font-size:13px;font-weight:600;${upiOk ? 'cursor:pointer' : 'opacity:0.45'}">
+                    <input type="radio" name="payMethod" value="UPI" ${upiOk ? '' : 'disabled'}> 📲 UPI
+                  </label>
+                </div>
+                ${!upiOk && vendorCount > 1 ? '<div style="font-size:11px;color:var(--muted);margin-top:6px">UPI is available when ordering from a single shop.</div>' : ''}
+                <div id="upiBox" style="display:none;margin-top:10px;background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px">
+                  <div style="font-size:13px;color:var(--dark)">Pay <b>${inr(subtotal + delivery)}</b> to UPI ID:</div>
+                  <div style="display:flex;align-items:center;gap:8px;margin:8px 0">
+                    <code style="font-size:14px;font-weight:700;color:var(--dark)" id="upiIdText">${upiOk ? esc(upiShop.upi_id) : ''}</code>
+                    <button type="button" id="copyUpi" style="border:1px solid var(--border);background:#fff;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit">Copy</button>
+                  </div>
+                  <input id="cUtr" type="text" placeholder="UTR / transaction reference (after paying)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit">
+                  <div style="font-size:11px;color:var(--muted);margin-top:6px">Your order is confirmed once the payment is verified.</div>
+                </div>
+              </div>
               <div class="totals">
                 <div class="trow"><span>Items subtotal</span><span>${inr(subtotal)}</span></div>
-                <div class="trow"><span>Delivery (${vendorCount} shop${vendorCount > 1 ? 's' : ''} × ${inr(DELIVERY_FEE)})</span><span>${inr(delivery)}</span></div>
+                <div class="trow"><span>Delivery (${vendorCount} shop${vendorCount > 1 ? 's' : ''})</span><span>${inr(delivery)}</span></div>
                 <div class="trow grand"><span>Total</span><span>${inr(subtotal + delivery)}</span></div>
               </div>
               <button type="submit" class="place-btn" id="placeBtn">Place Order · ${inr(subtotal + delivery)}</button>
@@ -278,6 +321,17 @@
         </div>`;
 
       document.getElementById('checkoutForm').addEventListener('submit', placeOrder);
+
+      document.querySelectorAll('input[name="payMethod"]').forEach(r =>
+        r.addEventListener('change', () => {
+          document.getElementById('upiBox').style.display =
+            document.querySelector('input[name="payMethod"]:checked').value === 'UPI' ? 'block' : 'none';
+        }));
+      const copyBtn = document.getElementById('copyUpi');
+      if (copyBtn) copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(document.getElementById('upiIdText').textContent.trim())
+          .then(() => { copyBtn.textContent = 'Copied!'; setTimeout(() => copyBtn.textContent = 'Copy', 1500); });
+      });
     }
 
     view.addEventListener('click', e => {
@@ -317,6 +371,21 @@
       if (!/^\d{10}$/.test(phone.replace(/\D/g, '').slice(-10))) return showError('Please enter a valid 10-digit phone number.');
       if (!/^\S+@\S+\.\S+$/.test(email)) return showError('Please enter a valid email address.');
 
+      // Pre-flight checks mirrored from the server pipeline (better UX; the
+      // database remains the final authority)
+      const gNow = groups();
+      for (const [vid, grp] of Object.entries(gNow)) {
+        const gSub = grp.items.reduce((s, i) => s + i.price * i.quantity, 0);
+        if (minFor(vid) > gSub) {
+          return showError(`${grp.name}: minimum order is ${inr(minFor(vid))}. Please add ${inr(minFor(vid) - gSub)} more.`);
+        }
+      }
+      const method = (document.querySelector('input[name="payMethod"]:checked') || {}).value === 'UPI' ? 'UPI' : 'COD';
+      if (method === 'COD') {
+        const noCod = Object.keys(gNow).find(vid => shopMeta[vid] && shopMeta[vid].accepts_cod === false);
+        if (noCod) return showError(`${(shopMeta[noCod] || {}).name || 'A shop'} does not accept Cash on Delivery — please pay by UPI.`);
+      }
+
       const btn = document.getElementById('placeBtn');
       btn.disabled = true;
       btn.textContent = 'Placing your order…';
@@ -338,7 +407,8 @@
             // server-side from the database.
             items: cart.map(i => ({ id: i.id, qty: i.quantity })),
             customer: { name, phone, email, address },
-            payment_method: 'COD',
+            payment_method: method,
+            utr: (document.getElementById('cUtr') || {}).value || '',
             idempotency_key: sessionStorage.getItem('checkoutKey')
           })
         });
@@ -362,6 +432,9 @@
           <div class="icon">🎉</div>
           <h2>Order placed!</h2>
           <p>A confirmation has been sent to your email. Save your order ID${orders.length > 1 ? 's' : ''} to track delivery.</p>
+          ${orders.some(o => o.payment_status === 'Pending Verification')
+            ? '<p style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;font-size:13px;color:#1e40af">📲 UPI payment: your order will be confirmed once the payment is verified.</p>'
+            : ''}
           ${orders.map(o => `
             <div class="order-line">
               <span><b>${esc2(o.order_id)}</b>${o.vendor_name ? '<br><span style="color:var(--muted);font-size:12px">' + esc2(o.vendor_name) + '</span>' : ''}</span>
@@ -376,6 +449,7 @@
     }
 
     render();
+    loadMeta();
   </script>
 </body>
 </html>

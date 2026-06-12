@@ -256,6 +256,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="orders">Orders</button>
       <button class="tab" data-tab="products">Products</button>
+      <button class="tab" data-tab="settings">Shop Settings</button>
     </div>
 
     <section class="panel active" id="panel-orders">
@@ -297,6 +298,39 @@
       </div>
 
       <div class="product-list" id="productsList"><div class="state">Loading products…</div></div>
+    </section>
+
+    <section class="panel" id="panel-settings">
+      <div class="product-form open" style="display:block" id="settingsCard">
+        <h3>Shop Settings</h3>
+        <form id="settingsForm">
+          <div class="form-grid">
+            <div class="full" style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border-radius:8px">
+              <input type="checkbox" id="sOpen" style="width:18px;height:18px">
+              <label for="sOpen" style="margin:0;text-transform:none;font-size:14px;color:var(--dark)">Shop is accepting orders</label>
+            </div>
+            <div><label for="sOpenTime">Opens at (blank = 24×7)</label><input id="sOpenTime" type="time"></div>
+            <div><label for="sCloseTime">Closes at</label><input id="sCloseTime" type="time"></div>
+            <div class="full">
+              <label>Open days</label>
+              <div id="sDays" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+            </div>
+            <div><label for="sDeliveryFee">Delivery fee (₹)</label><input id="sDeliveryFee" type="number" min="0" max="500" step="1"></div>
+            <div><label for="sMinOrder">Minimum order (₹, 0 = none)</label><input id="sMinOrder" type="number" min="0" step="1"></div>
+            <div class="full" style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border-radius:8px">
+              <input type="checkbox" id="sCod" style="width:18px;height:18px">
+              <label for="sCod" style="margin:0;text-transform:none;font-size:14px;color:var(--dark)">Accept Cash on Delivery</label>
+            </div>
+            <div class="full"><label for="sUpi">UPI ID (for online payments, e.g. shop@okhdfcbank)</label><input id="sUpi" type="text" placeholder="leave blank to disable UPI"></div>
+            <div><label for="sPhone">Shop phone</label><input id="sPhone" type="tel"></div>
+            <div><label for="sAddress">Address</label><input id="sAddress" type="text"></div>
+            <div class="full"><label for="sDesc">Shop description</label><textarea id="sDesc" rows="2"></textarea></div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="save-btn" id="sSaveBtn">Save Settings</button>
+          </div>
+        </form>
+      </div>
     </section>
   </main>
 
@@ -583,6 +617,74 @@
       }
     });
 
+    /* ---------- Shop settings ---------- */
+    document.getElementById('sDays').innerHTML = 'Sun Mon Tue Wed Thu Fri Sat'.split(' ').map((d, i) =>
+      `<label style="display:flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:8px;padding:7px 11px;font-size:13px;text-transform:none;letter-spacing:0;cursor:pointer;margin:0">
+        <input type="checkbox" value="${i}" checked> ${d}
+      </label>`).join('');
+
+    let settingsLoaded = false;
+    async function loadSettings() {
+      try {
+        const res = await fetch('/api/vendor-settings?token=' + encodeURIComponent(token));
+        if (res.status === 401) return authFail();
+        const s = await res.json();
+        document.getElementById('sOpen').checked = s.is_open !== false;
+        document.getElementById('sOpenTime').value = s.open_time ? s.open_time.slice(0, 5) : '';
+        document.getElementById('sCloseTime').value = s.close_time ? s.close_time.slice(0, 5) : '';
+        const days = String(s.open_days || '0,1,2,3,4,5,6').split(',');
+        document.querySelectorAll('#sDays input').forEach(cb => cb.checked = days.includes(cb.value));
+        document.getElementById('sDeliveryFee').value = s.delivery_fee ?? 30;
+        document.getElementById('sMinOrder').value = s.min_order ?? 0;
+        document.getElementById('sCod').checked = s.accepts_cod !== false;
+        document.getElementById('sUpi').value = s.upi_id || '';
+        document.getElementById('sPhone').value = s.phone || '';
+        document.getElementById('sAddress').value = s.address || '';
+        document.getElementById('sDesc').value = s.description || '';
+        settingsLoaded = true;
+      } catch (e) {
+        toast('Could not load settings');
+      }
+    }
+
+    document.getElementById('settingsForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = document.getElementById('sSaveBtn');
+      const days = [...document.querySelectorAll('#sDays input:checked')].map(cb => cb.value);
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        const res = await fetch('/api/vendor-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token,
+            fields: {
+              is_open: document.getElementById('sOpen').checked,
+              open_time: document.getElementById('sOpenTime').value,
+              close_time: document.getElementById('sCloseTime').value,
+              open_days: days.join(','),
+              delivery_fee: document.getElementById('sDeliveryFee').value,
+              min_order: document.getElementById('sMinOrder').value,
+              accepts_cod: document.getElementById('sCod').checked,
+              upi_id: document.getElementById('sUpi').value,
+              phone: document.getElementById('sPhone').value,
+              address: document.getElementById('sAddress').value,
+              description: document.getElementById('sDesc').value
+            }
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Save failed');
+        toast('Settings saved — live immediately');
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Settings';
+      }
+    });
+
     /* ---------- Stats & tabs ---------- */
     function renderStats() {
       document.getElementById('statOrders').textContent = allOrders.length;
@@ -597,6 +699,7 @@
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
         tab.classList.add('active');
         document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+        if (tab.dataset.tab === 'settings' && !settingsLoaded) loadSettings();
       });
     });
 
