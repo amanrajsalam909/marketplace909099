@@ -13,7 +13,7 @@ module.exports = async (req, res) => {
   if (!guard(req, res)) return;
 
   try {
-    const token = req.method === 'GET' ? req.query.token : (req.body || {}).token;
+    const token = req.query.token || (req.body || {}).token;
     const session = await validateVendorSession(token);
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
