@@ -406,7 +406,6 @@
       </div>
       <div class="header-actions">
         <a class="btn btn-ghost" href="track.html">Track Order</a>
-        <a class="btn btn-ghost" href="vendor-login.html">Sell with us</a>
         <button class="btn btn-ghost" id="accountBtn">Sign In</button>
         <a class="btn btn-primary" href="cart.html">🛒 Cart <span class="cart-count" id="cartCount"></span></a>
       </div>
@@ -431,7 +430,6 @@
       <div>© 2026 RajkotMarket — supporting local businesses in Rajkot.</div>
       <div>
         <a href="track.html">Track Order</a>
-        <a href="vendor-login.html">Sell on RajkotMarket</a>
       </div>
     </div>
   </footer>
@@ -518,10 +516,12 @@
 
     function renderCategoryChips() {
       const wrap = document.getElementById('catChips');
-      if (!state.categories.length) { wrap.style.display = 'none'; return; }
+      // Only categories that actually have a live shop in them
+      const filled = state.categories.filter(c => state.vendors.some(v => v.category_id === c.id));
+      if (!filled.length) { wrap.style.display = 'none'; return; }
       wrap.style.display = 'flex';
       wrap.innerHTML = `<button class="cat-chip ${!state.categoryFilter ? 'active' : ''}" data-cat="">✨ All</button>`
-        + state.categories.map(c =>
+        + filled.map(c =>
           `<button class="cat-chip ${state.categoryFilter === c.id ? 'active' : ''}" data-cat="${c.id}">${esc(c.icon || '🛍️')} ${esc(c.name)}</button>`
         ).join('');
     }
@@ -547,7 +547,8 @@
         : null;
       sectionTitle.textContent = catName || 'Shops in Rajkot';
       backBtn.style.display = 'none';
-      document.getElementById('catChips').style.display = state.categories.length ? 'flex' : 'none';
+      document.getElementById('catChips').style.display =
+        state.categories.some(c => state.vendors.some(v => v.category_id === c.id)) ? 'flex' : 'none';
 
       if (!list.length) {
         content.innerHTML = '<div class="state">No shops found' + (q ? ' for "' + esc(q) + '"' : (catName ? ' in ' + esc(catName) + ' yet — check back soon!' : ' yet — check back soon!')) + '</div>';
