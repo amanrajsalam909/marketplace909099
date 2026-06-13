@@ -729,7 +729,7 @@
         <div class="product-card" style="${out ? 'opacity:0.6' : ''}">
           <div class="product-image">${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}">` : '🛍️'}</div>
           <div class="product-body">
-            <div class="product-category">${esc(p.category || 'General')}</div>
+            <div class="product-category">${esc(p.category || 'General')}${p.product_no ? ' · #' + esc(p.product_no) : ''}</div>
             <div class="product-name">${esc(p.name)}</div>
             <div class="product-desc">${esc(p.description || '')}${low ? ' <span style="color:#d97706;font-weight:600">Only ' + p.stock + ' left!</span>' : ''}</div>
             <div class="product-footer">

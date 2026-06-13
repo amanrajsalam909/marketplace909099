@@ -382,6 +382,11 @@
             <div><label for="pCategory">Category</label><input id="pCategory" type="text" placeholder="e.g. Main Course" required></div>
             <div><label for="pPrice">Price (₹)</label><input id="pPrice" type="number" min="1" step="0.01" required></div>
             <div><label for="pStock">Stock (units available)</label><input id="pStock" type="number" min="0" step="1" value="0" required></div>
+            <div>
+              <label for="pNo">Product No.</label>
+              <input id="pNo" type="text" maxlength="5" autocomplete="off" placeholder="Auto-generated" style="text-transform:uppercase;letter-spacing:1px">
+              <small style="display:block;font-size:11px;color:var(--muted);margin-top:4px">5 letters/numbers · leave blank to auto-generate</small>
+            </div>
             <div class="full"><label for="pImage">Image URL (optional)</label><input id="pImage" type="url" placeholder="https://…"></div>
             <div class="full"><label for="pDesc">Description</label><textarea id="pDesc" rows="2"></textarea></div>
           </div>
@@ -895,7 +900,7 @@
         <div class="product-row">
           <div class="p-thumb">${p.image_url ? `<img src="${esc(p.image_url)}" alt="">` : '🍽️'}</div>
           <div class="p-info">
-            <div class="p-name">${esc(p.name)}</div>
+            <div class="p-name">${esc(p.name)} <span style="font-weight:600;font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:1px 6px;letter-spacing:0.5px;white-space:nowrap">#${esc(p.product_no || '—')}</span></div>
             <div class="p-meta">${esc(p.category || '')} · ${
               p.stock <= 0
                 ? '<span style="color:var(--red);font-weight:700">Out of stock</span>'
@@ -923,6 +928,7 @@
       document.getElementById('pStock').value = product ? (product.stock ?? 0) : 0;
       document.getElementById('pImage').value = product ? (product.image_url || '') : '';
       document.getElementById('pDesc').value = product ? (product.description || '') : '';
+      document.getElementById('pNo').value = product ? (product.product_no || '') : '';
       formEl.classList.add('open');
       document.getElementById('pName').focus();
     }
@@ -935,6 +941,10 @@
     toggleFormBtn.addEventListener('click', () => formEl.classList.contains('open') ? closeForm() : openForm(null));
     document.getElementById('cancelBtn').addEventListener('click', closeForm);
 
+    document.getElementById('pNo').addEventListener('input', e => {
+      e.target.value = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 5);
+    });
+
     document.getElementById('pForm').addEventListener('submit', async e => {
       e.preventDefault();
       const saveBtn = document.getElementById('saveBtn');
@@ -945,7 +955,8 @@
         description: document.getElementById('pDesc').value.trim(),
         price: parseFloat(document.getElementById('pPrice').value),
         stock: parseInt(document.getElementById('pStock').value, 10) || 0,
-        image_url: document.getElementById('pImage').value.trim()
+        image_url: document.getElementById('pImage').value.trim(),
+        product_no: document.getElementById('pNo').value.trim()
       };
 
       saveBtn.disabled = true;

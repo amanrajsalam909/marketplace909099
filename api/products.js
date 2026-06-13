@@ -42,6 +42,16 @@ module.exports = async (req, res) => {
         active: product.active !== false
       };
 
+      // Optional vendor-supplied product number (5-char base36). When omitted,
+      // the DB default (gen_product_no) assigns a unique one automatically.
+      const code = String(product.product_no || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+      if (code) {
+        if (code.length !== 5) {
+          return res.status(400).json({ error: 'Product number must be exactly 5 letters or numbers (A–Z, 0–9).' });
+        }
+        p.product_no = code;
+      }
+
       if (product.id) {
         const { data: existing } = await supabase
           .from('products')
@@ -57,17 +67,23 @@ module.exports = async (req, res) => {
           .from('products')
           .update(p)
           .eq('id', product.id);
-        if (error) throw error;
+        if (error) {
+          if (isDupCode(error)) return res.status(400).json({ error: 'That product number is already in use — pick another.' });
+          throw error;
+        }
         return res.json({ success: true, id: product.id });
       }
 
       const { data, error } = await supabase
         .from('products')
         .insert(p)
-        .select('id')
+        .select('id, product_no')
         .single();
-      if (error) throw error;
-      return res.json({ success: true, id: data.id });
+      if (error) {
+        if (isDupCode(error)) return res.status(400).json({ error: 'That product number is already in use — pick another.' });
+        throw error;
+      }
+      return res.json({ success: true, id: data.id, product_no: data.product_no });
     }
 
     if (req.method === 'DELETE') {
@@ -98,6 +114,11 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+// True when a DB error is a unique-violation on the product number column.
+function isDupCode(error) {
+  return error && error.code === '23505' && /product_no/.test(error.message || error.details || '');
+}
 
 async function validateVendorSession(token) {
   if (!token) return null;
