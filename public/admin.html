@@ -1154,7 +1154,9 @@
         const ws = XLSX.utils.json_to_sheet(s.rows);
         XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31)); // Excel caps sheet names at 31 chars
       });
-      const stamp = new Date().toISOString().slice(0, 10);
+      const d = new Date();
+      const stamp = String(d.getDate()).padStart(2, '0') + '-'
+        + String(d.getMonth() + 1).padStart(2, '0') + '-' + d.getFullYear(); // dd-mm-yyyy (/ is illegal in filenames)
       XLSX.writeFile(wb, `rajkotmarket-${model.filename}-${stamp}.${fmt}`);
       toast('Exported ' + fmt.toUpperCase());
     }
