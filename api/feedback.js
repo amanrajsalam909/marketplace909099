@@ -1,6 +1,7 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 const { sendComplaintAlert, sendComplaintResolution } = require('../lib/email');
+const { validateCustomerSession } = require('./customer-auth');
 
 // Reviews + complaints in one function (Vercel function budget).
 // Submissions are authenticated by knowledge of order ID + matching phone —
@@ -26,6 +27,18 @@ module.exports = async (req, res) => {
         const list = data || [];
         const avg = list.length ? Math.round(list.reduce((s, r) => s + r.rating, 0) / list.length * 10) / 10 : 0;
         return res.json({ avg, count: list.length, reviews: list });
+      }
+
+      // Logged-in customer: their own complaints (status + resolution)
+      if (req.query.myComplaints) {
+        const cs = await validateCustomerSession(req.query.token);
+        if (!cs) return res.status(401).json({ error: 'Not logged in.' });
+        const { data } = await supabase
+          .from('complaints')
+          .select('order_id, subject, description, status, resolution, resolved_at, created_at')
+          .eq('phone', cs.phone)
+          .order('created_at', { ascending: false });
+        return res.json(data || []);
       }
 
       // Admin: all reviews or all complaints
