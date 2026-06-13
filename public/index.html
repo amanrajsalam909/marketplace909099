@@ -28,6 +28,9 @@
       background: var(--bg);
       color: var(--text);
       -webkit-font-smoothing: antialiased;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
     }
 
     /* Header */
@@ -124,9 +127,11 @@
 
     /* Layout */
     .container {
+      width: 100%;
       max-width: 1200px;
       margin: 0 auto;
       padding: 32px 20px 60px;
+      flex: 1 0 auto;
     }
     .section-head {
       display: flex;
@@ -351,7 +356,8 @@
     .footer {
       border-top: 1px solid var(--border);
       background: var(--card);
-      padding: 28px 20px;
+      padding: 22px 20px;
+      flex-shrink: 0;
     }
     .footer-inner {
       max-width: 1200px;
