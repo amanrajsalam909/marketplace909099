@@ -1237,9 +1237,8 @@
         lastComplaints = list;
         const el = document.getElementById('complaintsList');
         if (!list.length) { el.innerHTML = '<div class="state">No complaints. 🎉</div>'; return; }
-        const COL = { 'Open': 'off', 'In Progress': '', 'Resolved': 'on' };
         el.innerHTML = list.map(c => `
-          <div class="list-row">
+          <div class="list-row" style="align-items:flex-start">
             <div class="row-info">
               <div class="row-title">${esc(c.subject)}</div>
               <div class="row-sub">${esc(c.order_id)} · ${esc((c.vendors || {}).name || '')} · ${esc(c.customer_name)} (${esc(c.email)}) · ${new Date(c.created_at).toLocaleDateString('en-IN')}</div>
@@ -1248,6 +1247,13 @@
             <select data-comp="${c.id}" style="width:auto;padding:7px 10px;font-size:12px">
               ${['Open', 'In Progress', 'Resolved'].map(s => `<option ${c.status === s ? 'selected' : ''}>${s}</option>`).join('')}
             </select>
+            <div style="flex-basis:100%;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px">
+              ${c.resolution ? `<div style="font-size:12px;color:var(--green);font-weight:600">✅ Solution emailed to customer${c.resolved_at ? ' · ' + new Date(c.resolved_at).toLocaleDateString('en-IN') : ''}</div>
+                 <div style="font-size:13px;color:var(--text);white-space:pre-wrap;margin:4px 0 10px">${esc(c.resolution)}</div>` : ''}
+              <label style="margin-bottom:6px">Solution / reply to customer</label>
+              <textarea data-res="${c.id}" rows="2" placeholder="Explain what you did to fix it — this is emailed to the customer">${esc(c.resolution || '')}</textarea>
+              <button class="btn btn-primary btn-sm" data-resolve="${c.id}" style="margin-top:8px">✉️ Send solution &amp; resolve</button>
+            </div>
           </div>`).join('');
       } catch (e) {
         document.getElementById('complaintsList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
@@ -1261,6 +1267,24 @@
         await apiPost({ action: 'update-complaint', complaintId: sel.dataset.comp, status: sel.value });
         toast('Complaint status updated');
       } catch (err) { toast(err.message); }
+    });
+
+    document.getElementById('complaintsList').addEventListener('click', async e => {
+      const btn = e.target.closest('[data-resolve]');
+      if (!btn) return;
+      const ta = document.querySelector(`textarea[data-res="${btn.dataset.resolve}"]`);
+      const resolution = (ta && ta.value || '').trim();
+      if (!resolution) return toast('Write the solution first.');
+      if (!confirm('Email this solution to the customer and mark the complaint Resolved?')) return;
+      btn.disabled = true; btn.textContent = 'Sending…';
+      try {
+        await apiPost({ action: 'resolve-complaint', complaintId: btn.dataset.resolve, resolution });
+        toast('Solution emailed · complaint resolved');
+        loadComplaints();
+      } catch (err) {
+        toast(err.message);
+        btn.disabled = false; btn.innerHTML = '✉️ Send solution &amp; resolve';
+      }
     });
 
     /* ---------- Settings ---------- */

@@ -1,6 +1,6 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
-const { sendComplaintAlert } = require('../lib/email');
+const { sendComplaintAlert, sendComplaintResolution } = require('../lib/email');
 
 // Reviews + complaints in one function (Vercel function budget).
 // Submissions are authenticated by knowledge of order ID + matching phone —
@@ -121,6 +121,26 @@ module.exports = async (req, res) => {
         const status = ['Open', 'In Progress', 'Resolved'].includes(req.body.status) ? req.body.status : 'Open';
         const { error } = await supabase.from('complaints').update({ status }).eq('id', req.body.complaintId);
         if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      // Record the solution and email it to the customer (the resolution is
+      // delivered outside the app; the admin section drives it via this API).
+      if (action === 'resolve-complaint') {
+        const resolution = String(req.body.resolution || '').trim().slice(0, 2000);
+        if (!resolution) return res.status(400).json({ error: 'Please write the solution to send to the customer.' });
+
+        const { data: c } = await supabase
+          .from('complaints').select('*').eq('id', req.body.complaintId).single();
+        if (!c) return res.status(404).json({ error: 'Complaint not found.' });
+
+        const { error } = await supabase
+          .from('complaints')
+          .update({ status: 'Resolved', resolution, resolved_at: new Date().toISOString() })
+          .eq('id', req.body.complaintId);
+        if (error) throw error;
+
+        if (c.email) sendComplaintResolution(c.email, c, resolution).catch(() => {});
         return res.json({ success: true });
       }
 
