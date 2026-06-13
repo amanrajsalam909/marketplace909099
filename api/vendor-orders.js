@@ -97,6 +97,7 @@ module.exports = async (req, res) => {
             .select('order_id, created_at, subtotal, delivery_fee, commission_amount, total, payment_method, payment_status')
             .eq('vendor_id', session.vendor_id)
             .eq('status', 'delivered')
+            .neq('returned', true)
             .gte('created_at', from)
             .lt('created_at', to)
             .order('created_at', { ascending: false })

@@ -232,6 +232,11 @@ module.exports = async (req, res) => {
         const { data: r, error } = await supabase
           .from('return_requests').update(upd).eq('id', req.body.returnId).select('*').single();
         if (error) throw error;
+        // On refund: restore stock + reverse commission (idempotent in the DB).
+        if (req.body.status === 'Refunded' && r) {
+          const { error: rpcErr } = await supabase.rpc('process_return_refund', { p_order_id: r.order_id });
+          if (rpcErr) throw rpcErr;
+        }
         if (r && r.email) sendReturnUpdate(r.email, r).catch(() => {});
         return res.json({ success: true });
       }
