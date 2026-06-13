@@ -1,7 +1,10 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
-const { sendComplaintAlert, sendComplaintResolution } = require('../lib/email');
+const { sendComplaintAlert, sendComplaintResolution, sendReturnUpdate } = require('../lib/email');
 const { validateCustomerSession } = require('./customer-auth');
+
+const RETURN_WINDOW_DAYS = 3;
+const RETURN_STATUSES = ['Requested', 'Approved', 'Rejected', 'Picked up', 'Refunded'];
 
 // Reviews + complaints in one function (Vercel function budget).
 // Submissions are authenticated by knowledge of order ID + matching phone —
@@ -41,6 +44,18 @@ module.exports = async (req, res) => {
         return res.json(data || []);
       }
 
+      // Logged-in customer: their own return requests
+      if (req.query.myReturns) {
+        const cs = await validateCustomerSession(req.query.token);
+        if (!cs) return res.status(401).json({ error: 'Not logged in.' });
+        const { data } = await supabase
+          .from('return_requests')
+          .select('order_id, reason, status, admin_note, refund_amount, refund_method, created_at, updated_at')
+          .eq('phone', cs.phone)
+          .order('created_at', { ascending: false });
+        return res.json(data || []);
+      }
+
       // Admin: all reviews or all complaints
       const session = await validateAdminSession(req.query.token);
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
@@ -53,6 +68,11 @@ module.exports = async (req, res) => {
       if (req.query.complaints) {
         const { data } = await supabase
           .from('complaints').select('*, vendors(name)').order('created_at', { ascending: false }).limit(200);
+        return res.json(data || []);
+      }
+      if (req.query.returns) {
+        const { data } = await supabase
+          .from('return_requests').select('*, vendors(name)').order('created_at', { ascending: false }).limit(200);
         return res.json(data || []);
       }
       return res.status(400).json({ error: 'Invalid query' });
@@ -115,6 +135,47 @@ module.exports = async (req, res) => {
         return res.json({ success: true });
       }
 
+      // Customer requests a return on a delivered order (within the window)
+      if (action === 'submit-return') {
+        const { orderId, phone, reason } = req.body;
+        if (!reason || !String(reason).trim()) return res.status(400).json({ error: 'Please choose a reason for the return.' });
+
+        const norm = String(phone || '').replace(/\D/g, '').slice(-10);
+        const { data: ord } = await supabase
+          .from('orders')
+          .select('order_id, vendor_id, status, customer_name, customer_email, customer_phone, updated_at')
+          .eq('order_id', orderId).eq('customer_phone', norm).single();
+        if (!ord) return res.status(404).json({ error: 'Order not found.' });
+        if (ord.status !== 'delivered') return res.status(400).json({ error: 'You can request a return only after the order is delivered.' });
+
+        // Window starts at delivery — read the delivered event, fall back to updated_at
+        const { data: ev } = await supabase
+          .from('order_events').select('created_at')
+          .eq('order_id', orderId).eq('to_status', 'delivered')
+          .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        const deliveredAt = ev ? new Date(ev.created_at) : new Date(ord.updated_at);
+        if (Date.now() - deliveredAt.getTime() > RETURN_WINDOW_DAYS * 86400000) {
+          return res.status(400).json({ error: `The ${RETURN_WINDOW_DAYS}-day return window for this order has passed.` });
+        }
+
+        const { data: existing } = await supabase
+          .from('return_requests').select('status').eq('order_id', orderId).maybeSingle();
+        if (existing) return res.status(400).json({ error: 'A return is already in progress for this order.' });
+
+        const ret = {
+          order_id: orderId, vendor_id: ord.vendor_id,
+          customer_name: ord.customer_name, email: ord.customer_email, phone: ord.customer_phone,
+          reason: String(reason).trim().slice(0, 600), status: 'Requested'
+        };
+        const { error } = await supabase.from('return_requests').insert(ret);
+        if (error) {
+          if (error.code === '23505') return res.status(400).json({ error: 'A return is already in progress for this order.' });
+          throw error;
+        }
+        if (ret.email) sendReturnUpdate(ret.email, ret).catch(() => {});
+        return res.json({ success: true });
+      }
+
       // ----- Admin moderation -----
       const session = await validateAdminSession(req.body.token);
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
@@ -154,6 +215,24 @@ module.exports = async (req, res) => {
         if (error) throw error;
 
         if (c.email) sendComplaintResolution(c.email, c, resolution).catch(() => {});
+        return res.json({ success: true });
+      }
+
+      // Admin advances a return and emails the customer the update.
+      if (action === 'update-return') {
+        if (!RETURN_STATUSES.includes(req.body.status)) {
+          return res.status(400).json({ error: 'Invalid return status.' });
+        }
+        const upd = { status: req.body.status, updated_at: new Date().toISOString() };
+        if (req.body.admin_note !== undefined) upd.admin_note = String(req.body.admin_note || '').trim().slice(0, 1000);
+        if (req.body.status === 'Refunded') {
+          upd.refund_amount = (req.body.refund_amount != null && req.body.refund_amount !== '') ? Number(req.body.refund_amount) : null;
+          upd.refund_method = String(req.body.refund_method || '').trim().slice(0, 60);
+        }
+        const { data: r, error } = await supabase
+          .from('return_requests').update(upd).eq('id', req.body.returnId).select('*').single();
+        if (error) throw error;
+        if (r && r.email) sendReturnUpdate(r.email, r).catch(() => {});
         return res.json({ success: true });
       }
 

@@ -381,18 +381,41 @@
         </div>`;
     }
 
+    const RET_BADGE = {
+      'Requested': 'background:#fef3c7;color:#92400e', 'Approved': 'background:#dbeafe;color:#1e40af',
+      'Rejected': 'background:#fee2e2;color:#991b1b', 'Picked up': 'background:#e0e7ff;color:#3730a3',
+      'Refunded': 'background:#d1fae5;color:#065f46'
+    };
+    function returnBlock(r) {
+      const badge = RET_BADGE[r.status] || RET_BADGE['Requested'];
+      return `
+        <div style="margin:10px 0;border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:12px;font-weight:700;color:var(--dark)">↩️ Return</span>
+            <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;${badge}">${esc(r.status)}</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:3px">Reason: ${esc(r.reason)}</div>
+          ${r.admin_note ? `<div style="font-size:12px;color:var(--text);margin-top:6px;white-space:pre-wrap"><b>Update:</b> ${esc(r.admin_note)}</div>` : ''}
+          ${r.status === 'Refunded' && r.refund_amount != null ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px">💸 Refunded ${inr(r.refund_amount)}${r.refund_method ? ' via ' + esc(r.refund_method) : ''}</div>` : ''}
+        </div>`;
+    }
+
     async function loadOrders() {
       const el = document.getElementById('ordersList');
       try {
-        const [oRes, cRes] = await Promise.all([
+        const [oRes, cRes, rRes] = await Promise.all([
           fetch('/api/orders?myOrders=1&token=' + encodeURIComponent(cust.token)),
-          fetch('/api/feedback?myComplaints=1&token=' + encodeURIComponent(cust.token))
+          fetch('/api/feedback?myComplaints=1&token=' + encodeURIComponent(cust.token)),
+          fetch('/api/feedback?myReturns=1&token=' + encodeURIComponent(cust.token))
         ]);
         if (oRes.status === 401) return doSignOut(false);
         const orders = await oRes.json();
         const complaints = cRes.ok ? await cRes.json() : [];
+        const returns = rRes.ok ? await rRes.json() : [];
         const compByOrder = {};
         complaints.forEach(c => { (compByOrder[c.order_id] = compByOrder[c.order_id] || []).push(c); });
+        const returnByOrder = {};
+        returns.forEach(r => { returnByOrder[r.order_id] = r; });
 
         if (!orders.length) {
           el.innerHTML = '<div class="state">No orders yet — <a href="/">start shopping</a>!</div>';
@@ -403,6 +426,7 @@
           const itemsLine = items.map(i => esc(i.name) + ' × ' + i.quantity).join(' · ');
           const canCancel = o.status === 'pending' && (Date.now() - new Date(o.created_at).getTime() < 10 * 60 * 1000);
           const comps = compByOrder[o.order_id] || [];
+          const ret = returnByOrder[o.order_id];
           return `
           <div class="order-card">
             <div class="order-top">
@@ -416,6 +440,7 @@
             ${Number(o.discount_amount) > 0 ? `<div class="saved-line">🎉 ${esc(o.offer_name || 'Offer')} — you saved ${inr(o.discount_amount)}</div>` : ''}
             ${o.status === 'ready' ? `<div id="otp-${esc(o.order_id)}"></div>` : ''}
             ${comps.map(complaintBlock).join('')}
+            ${ret ? returnBlock(ret) : ''}
             <div class="order-foot">
               <span class="order-when">${new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} · ${esc(o.payment_method)} · ${esc(o.payment_status || '')}</span>
               <div style="display:flex;align-items:center;gap:16px">
@@ -423,6 +448,7 @@
                 <div class="order-links">
                   <a href="track.html?orderId=${encodeURIComponent(o.order_id)}&phone=${encodeURIComponent(cust.phone)}">Track</a>
                   ${o.status === 'delivered' ? `<a href="#" data-review="${esc(o.order_id)}">Review</a>` : ''}
+                  ${o.status === 'delivered' && !ret ? `<a href="#" data-return="${esc(o.order_id)}">Return</a>` : ''}
                   ${o.status !== 'cancelled' ? `<a href="#" data-complain="${esc(o.order_id)}">Complain</a>` : ''}
                   ${canCancel ? `<a href="#" class="danger" data-cancel="${esc(o.order_id)}">Cancel</a>` : ''}
                 </div>
@@ -470,6 +496,8 @@
       if (rev) { e.preventDefault(); openReview(rev.dataset.review); return; }
       const comp = e.target.closest('[data-complain]');
       if (comp) { e.preventDefault(); openComplaint(comp.dataset.complain); return; }
+      const retn = e.target.closest('[data-return]');
+      if (retn) { e.preventDefault(); openReturn(retn.dataset.return); return; }
       const c = e.target.closest('[data-cancel]');
       if (!c) return;
       e.preventDefault();
@@ -557,6 +585,40 @@
         if (!d.success) throw new Error(d.error || 'Could not submit the complaint.');
         closeFbModal(); toast('Complaint submitted — we\'ll look into it.'); loadOrders();
       } catch (e) { fbErr(e.message); btn.disabled = false; btn.textContent = 'Submit complaint'; }
+    }
+
+    function openReturn(orderId) {
+      openFbModal('Return this order', `
+        <div id="fbErrBox" style="${FBERR}"></div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Order <b>${esc(orderId)}</b> · returns are accepted within 3 days of delivery.</p>
+        <select id="retReason" style="${FBFIELD}">
+          <option value="">Select a reason…</option>
+          <option>Damaged or defective</option>
+          <option>Wrong item delivered</option>
+          <option>Not as described</option>
+          <option>Quality not satisfactory</option>
+          <option>Changed my mind</option>
+          <option>Other</option>
+        </select>
+        <textarea id="retNote" rows="3" placeholder="Add any details (optional)" style="${FBFIELD}"></textarea>
+        <button id="retSubmit" style="${FBBTN}">Request return</button>`);
+      document.getElementById('retSubmit').addEventListener('click', () => submitReturn(orderId));
+    }
+    async function submitReturn(orderId) {
+      const reasonSel = document.getElementById('retReason').value;
+      const note = document.getElementById('retNote').value.trim();
+      if (!reasonSel) return fbErr('Please choose a reason.');
+      const reason = reasonSel + (note ? ' — ' + note : '');
+      const btn = document.getElementById('retSubmit'); btn.disabled = true; btn.textContent = 'Submitting…';
+      try {
+        const res = await fetch('/api/feedback', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'submit-return', orderId, phone: cust.phone, reason })
+        });
+        const d = await res.json();
+        if (!d.success) throw new Error(d.error || 'Could not request the return.');
+        closeFbModal(); toast('Return requested — we\'ll review it shortly.'); loadOrders();
+      } catch (e) { fbErr(e.message); btn.disabled = false; btn.textContent = 'Request return'; }
     }
 
     /* ---------- Addresses ---------- */

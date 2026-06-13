@@ -279,6 +279,7 @@
         <button class="tab" data-tab="offers">Offers</button>
         <button class="tab" data-tab="reviews">Reviews</button>
         <button class="tab" data-tab="complaints">Complaints</button>
+        <button class="tab" data-tab="returns">Returns</button>
         <button class="tab" data-tab="settings">Settings</button>
       </div>
       <div class="export-wrap" id="exportWrap">
@@ -396,6 +397,15 @@
       </div>
     </section>
 
+    <!-- RETURNS -->
+    <section class="panel" id="panel-returns">
+      <div class="card">
+        <h3>↩️ Returns</h3>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Approve or reject return requests, mark pickup, and record the refund. The customer is emailed at every step.</p>
+        <div id="returnsList"><div class="state">Loading…</div></div>
+      </div>
+    </section>
+
     <!-- SETTINGS -->
     <section class="panel" id="panel-settings">
       <div class="card">
@@ -463,6 +473,7 @@
     let lastOffers = [];
     let lastReviews = [];
     let lastComplaints = [];
+    let lastReturns = [];
     const vName = id => (vendors.find(v => v.id === id) || {}).name || '';
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1293,6 +1304,68 @@
       }
     });
 
+    /* ---------- Returns ---------- */
+    const RET_STATUSES = ['Requested', 'Approved', 'Rejected', 'Picked up', 'Refunded'];
+    const RET_BADGE = {
+      'Requested': 'background:#fef3c7;color:#92400e', 'Approved': 'background:#dbeafe;color:#1e40af',
+      'Rejected': 'background:#fee2e2;color:#991b1b', 'Picked up': 'background:#e0e7ff;color:#3730a3',
+      'Refunded': 'background:#d1fae5;color:#065f46'
+    };
+    async function loadReturns() {
+      try {
+        const list = await api(`/api/feedback?returns=1&token=${encodeURIComponent(token)}`);
+        lastReturns = list;
+        const el = document.getElementById('returnsList');
+        if (!list.length) { el.innerHTML = '<div class="state">No return requests. 🎉</div>'; return; }
+        el.innerHTML = list.map(r => `
+          <div class="list-row" style="align-items:flex-start">
+            <div class="row-info">
+              <div class="row-title">${esc(r.order_id)}
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${RET_BADGE[r.status] || RET_BADGE['Requested']}">${esc(r.status)}</span>
+              </div>
+              <div class="row-sub">${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} (${esc(r.email || '')}) · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
+              <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
+              ${r.status === 'Refunded' && r.refund_amount != null ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:4px">💸 Refunded ${inr(r.refund_amount)}${r.refund_method ? ' via ' + esc(r.refund_method) : ''}</div>` : ''}
+            </div>
+            <div style="flex-basis:100%;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px">
+              <div class="form-grid">
+                <div><label>Status</label>
+                  <select data-ret-status="${r.id}">${RET_STATUSES.map(s => `<option ${r.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+                </div>
+                <div><label>Refund amount (₹)</label><input data-ret-amount="${r.id}" type="number" min="0" step="0.01" value="${r.refund_amount != null ? r.refund_amount : ''}" placeholder="only when refunding"></div>
+                <div><label>Refund method</label><input data-ret-method="${r.id}" type="text" value="${esc(r.refund_method || '')}" placeholder="Cash / UPI"></div>
+              </div>
+              <label style="margin-top:10px">Note to customer (reject reason / pickup info)</label>
+              <textarea data-ret-note="${r.id}" rows="2" placeholder="Emailed to the customer with this update">${esc(r.admin_note || '')}</textarea>
+              <button class="btn btn-primary btn-sm" data-ret-update="${r.id}" style="margin-top:8px">✉️ Update &amp; email customer</button>
+            </div>
+          </div>`).join('');
+      } catch (e) {
+        document.getElementById('returnsList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    document.getElementById('returnsList').addEventListener('click', async e => {
+      const btn = e.target.closest('[data-ret-update]');
+      if (!btn) return;
+      const id = btn.dataset.retUpdate;
+      const val = sel => (document.querySelector(`[data-ret-${sel}="${id}"]`) || {}).value || '';
+      const status = val('status');
+      if (status === 'Refunded' && !val('amount')) { toast('Enter the refund amount.'); return; }
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        await fbPost({
+          action: 'update-return', returnId: id, status,
+          admin_note: val('note').trim(), refund_amount: val('amount').trim(), refund_method: val('method').trim()
+        });
+        toast('Return updated · customer emailed');
+        loadReturns();
+      } catch (err) {
+        toast(err.message);
+        btn.disabled = false; btn.innerHTML = '✉️ Update &amp; email customer';
+      }
+    });
+
     /* ---------- Settings ---------- */
     document.getElementById('pinForm').addEventListener('submit', async e => {
       e.preventDefault();
@@ -1324,7 +1397,7 @@
     const fmtDay = d => { if (!d) return ''; const x = new Date(d); return `${pad2(x.getDate())}/${pad2(x.getMonth() + 1)}/${x.getFullYear()}`; };
     const EXPORT_LABELS = {
       vendors: 'Vendors', categories: 'Categories', orders: 'Orders', payments: 'Payments',
-      accounting: 'Accounting', offers: 'Offers', reviews: 'Reviews', complaints: 'Complaints'
+      accounting: 'Accounting', offers: 'Offers', reviews: 'Reviews', complaints: 'Complaints', returns: 'Returns'
     };
 
     // Returns { filename, sheets: [{ name, rows }] } for the active tab — clean,
@@ -1418,6 +1491,15 @@
             'Description': c.description, 'Status': c.status, 'Created': fmtDateTime(c.created_at)
           })) }] };
 
+        case 'returns':
+          return { filename: 'returns', sheets: [{ name: 'Returns', rows: lastReturns.map(r => ({
+            'Order ID': r.order_id, 'Shop': (r.vendors || {}).name || '',
+            'Customer': r.customer_name, 'Email': r.email, 'Phone': r.phone || '',
+            'Reason': r.reason, 'Status': r.status, 'Note': r.admin_note || '',
+            'Refund': r.refund_amount != null ? r.refund_amount : '', 'Refund Method': r.refund_method || '',
+            'Created': fmtDateTime(r.created_at)
+          })) }] };
+
         default: return null;
       }
     }
@@ -1486,6 +1568,7 @@
         if (tab.dataset.tab === 'offers') loadOffers();
         if (tab.dataset.tab === 'reviews') loadReviews();
         if (tab.dataset.tab === 'complaints') loadComplaints();
+        if (tab.dataset.tab === 'returns') loadReturns();
         updateExportLabel();
       });
     });
