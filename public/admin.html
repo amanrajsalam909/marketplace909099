@@ -6,6 +6,8 @@
   <title>Admin Panel — Rajkot Market</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- SheetJS (community): CSV / XLSX / ODS export — runs entirely in the browser -->
+  <script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <style>
     :root {
       --primary: #e85d04;
@@ -180,6 +182,27 @@
     .modal h3 { font-size: 16px; font-weight: 800; color: var(--dark); margin-bottom: 16px; }
     .modal .form-grid { margin-bottom: 16px; }
 
+    /* Export control */
+    .tabsbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; margin-bottom: 18px;
+    }
+    .export-wrap { position: relative; }
+    .export-pop {
+      position: absolute; right: 0; top: calc(100% + 6px);
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14); padding: 6px; min-width: 200px;
+      z-index: 120; display: none;
+    }
+    .export-pop.open { display: block; }
+    .export-pop button {
+      display: block; width: 100%; text-align: left; border: none; background: transparent;
+      padding: 9px 12px; border-radius: 7px;
+      font-size: 13px; font-weight: 600; color: var(--text);
+      font-family: inherit; cursor: pointer;
+    }
+    .export-pop button:hover { background: var(--bg); color: var(--primary); }
+
     @media (max-width: 760px) {
       .stats { grid-template-columns: repeat(2, 1fr); }
       .form-grid { grid-template-columns: 1fr; }
@@ -202,16 +225,26 @@
       <div class="stat"><div class="label">Total GMV</div><div class="value green" id="stRevenue">—</div></div>
     </div>
 
-    <div class="tabs">
-      <button class="tab active" data-tab="vendors">Vendors</button>
-      <button class="tab" data-tab="categories">Categories</button>
-      <button class="tab" data-tab="orders">Orders</button>
-      <button class="tab" data-tab="payments">Payments</button>
-      <button class="tab" data-tab="accounting">Accounting</button>
-      <button class="tab" data-tab="offers">Offers</button>
-      <button class="tab" data-tab="reviews">Reviews</button>
-      <button class="tab" data-tab="complaints">Complaints</button>
-      <button class="tab" data-tab="settings">Settings</button>
+    <div class="tabsbar">
+      <div class="tabs" style="margin-bottom:0">
+        <button class="tab active" data-tab="vendors">Vendors</button>
+        <button class="tab" data-tab="categories">Categories</button>
+        <button class="tab" data-tab="orders">Orders</button>
+        <button class="tab" data-tab="payments">Payments</button>
+        <button class="tab" data-tab="accounting">Accounting</button>
+        <button class="tab" data-tab="offers">Offers</button>
+        <button class="tab" data-tab="reviews">Reviews</button>
+        <button class="tab" data-tab="complaints">Complaints</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </div>
+      <div class="export-wrap" id="exportWrap">
+        <button class="btn btn-outline btn-sm" id="exportBtn" style="border-radius:8px">⬇ Export ▾</button>
+        <div class="export-pop" id="exportPop">
+          <button data-fmt="csv">📄 CSV (.csv)</button>
+          <button data-fmt="xlsx">📊 Excel (.xlsx)</button>
+          <button data-fmt="ods">📑 OpenDocument (.ods)</button>
+        </div>
+      </div>
     </div>
 
     <!-- VENDORS -->
@@ -371,6 +404,14 @@
 
     let vendors = [];
     let categories = [];
+    // Latest loaded dataset per tab, kept so the Export control can snapshot
+    // exactly what the admin is looking at (filters included).
+    let lastPayments = [];
+    let lastAccounting = null;
+    let lastOffers = [];
+    let lastReviews = [];
+    let lastComplaints = [];
+    const vName = id => (vendors.find(v => v.id === id) || {}).name || '';
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const inr = n => '₹' + Number(n).toLocaleString('en-IN');
@@ -703,6 +744,7 @@
     async function loadPayments() {
       try {
         const pays = await apiGet('pending-payments');
+        lastPayments = pays;
         const el = document.getElementById('paymentsList');
         if (!pays.length) {
           el.innerHTML = '<div class="state">No payments waiting for verification. ✅</div>';
@@ -766,6 +808,7 @@
       body.innerHTML = '<div class="state">Loading accounts…</div>';
       try {
         const a = await apiGet('accounting&days=' + accDays);
+        lastAccounting = a;
         const t = a.totals, ip = a.in_progress;
 
         const card = (label, value, color) =>
@@ -825,6 +868,7 @@
         + vendors.map(v => `<option value="${v.id}" ${sel.value === v.id ? 'selected' : ''}>${esc(v.name)}</option>`).join('');
       try {
         const offers = await apiGet('offers');
+        lastOffers = offers;
         const el = document.getElementById('offersList');
         if (!offers.length) {
           el.innerHTML = '<div class="state">No offers yet — create the first one above.</div>';
@@ -911,6 +955,7 @@
     async function loadReviews() {
       try {
         const list = await api(`/api/feedback?reviews=1&token=${encodeURIComponent(token)}`);
+        lastReviews = list;
         const el = document.getElementById('reviewsList');
         if (!list.length) { el.innerHTML = '<div class="state">No reviews yet.</div>'; return; }
         el.innerHTML = list.map(r => `
@@ -949,6 +994,7 @@
     async function loadComplaints() {
       try {
         const list = await api(`/api/feedback?complaints=1&token=${encodeURIComponent(token)}`);
+        lastComplaints = list;
         const el = document.getElementById('complaintsList');
         if (!list.length) { el.innerHTML = '<div class="state">No complaints. 🎉</div>'; return; }
         const COL = { 'Open': 'off', 'In Progress': '', 'Resolved': 'on' };
@@ -1000,6 +1046,140 @@
       } catch (err) { toast(err.message); }
     });
 
+    /* ---------- Export (CSV / Excel / ODS) ---------- */
+    const fmtDateTime = d => d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    const fmtDay = d => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+    const EXPORT_LABELS = {
+      vendors: 'Vendors', categories: 'Categories', orders: 'Orders', payments: 'Payments',
+      accounting: 'Accounting', offers: 'Offers', reviews: 'Reviews', complaints: 'Complaints'
+    };
+
+    // Returns { filename, sheets: [{ name, rows }] } for the active tab — clean,
+    // human-readable columns rather than raw API rows. null = nothing to export.
+    function exportModel(tab) {
+      switch (tab) {
+        case 'vendors':
+          return { filename: 'vendors', sheets: [{ name: 'Vendors', rows: vendors.map(v => ({
+            'Shop': v.name, 'Email': v.email, 'Phone': v.phone || '',
+            'Category': (v.categories || {}).name || '', 'Commission %': Number(v.commission_percent),
+            'Status': v.is_active ? 'Live' : 'Suspended', 'Address': v.address || '', 'Created': fmtDateTime(v.created_at)
+          })) }] };
+
+        case 'categories':
+          return { filename: 'categories', sheets: [{ name: 'Categories', rows: categories.map(c => ({
+            'Name': c.name, 'Icon': c.icon || '', 'Vendors': vendors.filter(v => v.category_id === c.id).length,
+            'Sort Order': c.sort_order, 'Status': c.is_active ? 'Visible' : 'Hidden'
+          })) }] };
+
+        case 'orders': {
+          const filter = document.getElementById('ordVendorFilter').value;
+          const list = filter ? adminOrders.filter(o => o.vendor_id === filter) : adminOrders;
+          return { filename: 'orders', sheets: [{ name: 'Orders', rows: list.map(o => ({
+            'Order ID': o.order_id, 'Shop': vName(o.vendor_id), 'Customer': o.customer_name, 'Phone': o.customer_phone,
+            'Total': Number(o.total), 'Payment Method': o.payment_method, 'Payment Status': o.payment_status || '',
+            'Commission': Number(o.commission_amount || 0), 'UTR': o.utr || '', 'Status': o.status, 'When': fmtDateTime(o.created_at)
+          })) }] };
+        }
+
+        case 'payments':
+          return { filename: 'pending-payments', sheets: [{ name: 'Pending Payments', rows: lastPayments.map(p => ({
+            'Order ID': p.order_id, 'Shop': vName(p.vendor_id), 'Customer': p.customer_name, 'Phone': p.customer_phone,
+            'Total': Number(p.total), 'UTR': p.utr || '', 'Created': fmtDateTime(p.created_at)
+          })) }] };
+
+        case 'accounting': {
+          if (!lastAccounting) return null;
+          const t = lastAccounting.totals, ip = lastAccounting.in_progress, cx = lastAccounting.cancelled || {};
+          const totals = [
+            { 'Metric': 'GMV (delivered)', 'Value': Number(t.gmv) },
+            { 'Metric': 'Items Value', 'Value': Number(t.gross) },
+            { 'Metric': 'Discounts', 'Value': Number(t.discounts || 0) },
+            { 'Metric': 'Delivery Fees', 'Value': Number(t.delivery_fees) },
+            { 'Metric': 'Commission', 'Value': Number(t.commission) },
+            { 'Metric': 'COD Volume', 'Value': Number(t.cod) },
+            { 'Metric': 'UPI Volume', 'Value': Number(t.upi) },
+            { 'Metric': 'Delivered Orders', 'Value': t.orders },
+            { 'Metric': 'In Progress Orders', 'Value': ip.orders },
+            { 'Metric': 'In Progress Value', 'Value': Number(ip.value) },
+            { 'Metric': 'Cancelled Orders', 'Value': cx.orders || 0 }
+          ];
+          const perShop = (lastAccounting.by_vendor || []).map(v => ({
+            'Shop': v.name, 'Orders': v.orders, 'Items Value': Number(v.gross),
+            'Discounts': Number(v.discounts || 0), 'Delivery Fees': Number(v.delivery_fees),
+            'Commission %': Number(v.commission_percent), 'Commission Due': Number(v.commission), 'Shop Keeps': Number(v.payout)
+          }));
+          const period = accDays === '' ? 'all-time' : accDays === '0' ? 'today' : 'last-' + accDays + 'd';
+          return { filename: 'accounting-' + period, sheets: [
+            { name: 'Per-shop settlement', rows: perShop },
+            { name: 'Totals', rows: totals }
+          ] };
+        }
+
+        case 'offers':
+          return { filename: 'offers', sheets: [{ name: 'Offers', rows: lastOffers.map(o => ({
+            'Name': o.name, 'Scope': o.vendor_id ? ((o.vendors || {}).name || 'One shop') : 'All shops',
+            'Type': o.discount_type, 'Value': Number(o.discount_value),
+            'Max Discount': o.max_discount ? Number(o.max_discount) : '', 'Min Order': Number(o.min_order),
+            'Valid From': fmtDay(o.valid_from), 'Valid To': fmtDay(o.valid_to),
+            'Max Uses': o.max_uses == null ? '' : o.max_uses, 'Used': o.uses_count,
+            'Active': o.active ? 'Yes' : 'No', 'Created By': o.created_by
+          })) }] };
+
+        case 'reviews':
+          return { filename: 'reviews', sheets: [{ name: 'Reviews', rows: lastReviews.map(r => ({
+            'Shop': (r.vendors || {}).name || '', 'Order ID': r.order_id, 'Customer': r.customer_name,
+            'Rating': r.rating, 'Comment': r.comment || '', 'Approved': r.approved ? 'Yes' : 'No', 'Created': fmtDateTime(r.created_at)
+          })) }] };
+
+        case 'complaints':
+          return { filename: 'complaints', sheets: [{ name: 'Complaints', rows: lastComplaints.map(c => ({
+            'Subject': c.subject, 'Order ID': c.order_id, 'Shop': (c.vendors || {}).name || '',
+            'Customer': c.customer_name, 'Email': c.email, 'Phone': c.phone || '',
+            'Description': c.description, 'Status': c.status, 'Created': fmtDateTime(c.created_at)
+          })) }] };
+
+        default: return null;
+      }
+    }
+
+    function runExport(fmt) {
+      const tab = document.querySelector('.tab.active').dataset.tab;
+      const model = exportModel(tab);
+      const sheets = model ? model.sheets.filter(s => s.rows.length) : [];
+      if (!sheets.length) { toast('Nothing to export on this tab yet.'); return; }
+      if (typeof XLSX === 'undefined') { toast('Export tool is still loading — try again in a moment.'); return; }
+
+      const wb = XLSX.utils.book_new();
+      sheets.forEach(s => {
+        const ws = XLSX.utils.json_to_sheet(s.rows);
+        XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31)); // Excel caps sheet names at 31 chars
+      });
+      const stamp = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `rajkotmarket-${model.filename}-${stamp}.${fmt}`);
+      toast('Exported ' + fmt.toUpperCase());
+    }
+
+    const exportBtn = document.getElementById('exportBtn');
+    const exportPop = document.getElementById('exportPop');
+    exportBtn.addEventListener('click', e => { e.stopPropagation(); exportPop.classList.toggle('open'); });
+    document.addEventListener('click', () => exportPop.classList.remove('open'));
+    exportPop.addEventListener('click', e => {
+      const b = e.target.closest('[data-fmt]');
+      if (!b) return;
+      exportPop.classList.remove('open');
+      runExport(b.dataset.fmt);
+    });
+
+    function updateExportLabel() {
+      const tab = document.querySelector('.tab.active').dataset.tab;
+      if (EXPORT_LABELS[tab]) {
+        document.getElementById('exportWrap').style.display = '';
+        exportBtn.textContent = '⬇ Export ' + EXPORT_LABELS[tab] + ' ▾';
+      } else {
+        document.getElementById('exportWrap').style.display = 'none'; // e.g. Settings has nothing tabular
+      }
+    }
+
     /* ---------- Tabs ---------- */
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
@@ -1013,9 +1193,11 @@
         if (tab.dataset.tab === 'offers') loadOffers();
         if (tab.dataset.tab === 'reviews') loadReviews();
         if (tab.dataset.tab === 'complaints') loadComplaints();
+        updateExportLabel();
       });
     });
 
+    updateExportLabel();
     loadStats();
     loadCategories();
     loadVendors();
