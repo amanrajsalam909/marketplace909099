@@ -203,9 +203,26 @@
     }
     .export-pop button:hover { background: var(--bg); color: var(--primary); }
 
+    /* Merchant agreement / KYC modal */
+    .ag-section {
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; margin-bottom: 14px;
+    }
+    .ag-section h4 {
+      font-size: 12px; font-weight: 800; color: var(--dark);
+      margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .ag-section label { margin-top: 0; }
+    .ag-doc { border-top: 1px solid #f1f5f9; padding: 10px 0; }
+    .ag-doc:first-of-type { border-top: none; padding-top: 0; }
+    .ag-doc-head { font-size: 13px; font-weight: 700; color: var(--dark); margin-bottom: 6px; }
+    .ag-doc-grid { display: grid; grid-template-columns: 1fr 150px; gap: 8px; }
+    .ag-doc-grid .wide { grid-column: 1 / -1; }
+
     @media (max-width: 760px) {
       .stats { grid-template-columns: repeat(2, 1fr); }
       .form-grid { grid-template-columns: 1fr; }
+      .ag-doc-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -396,6 +413,14 @@
     </div>
   </div>
 
+  <!-- Merchant Agreement & KYC modal -->
+  <div class="modal-bg" id="agreementModal">
+    <div class="modal" style="max-width:680px">
+      <h3 id="agTitle">Merchant Agreement &amp; KYC</h3>
+      <div id="agBody"></div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script>
@@ -564,9 +589,11 @@
               ${v.categories ? esc((v.categories.icon || '') + ' ' + v.categories.name) + ' · ' : ''}
               ${esc(v.email)} · ${Number(v.commission_percent)}% commission
             </div>
+            <div class="row-sub" style="margin-top:3px">${kycSummaryHtml(v)}</div>
           </div>
           <span class="badge ${v.is_active ? 'on' : 'off'}">${v.is_active ? 'LIVE' : 'SUSPENDED'}</span>
           <div class="row-actions">
+            <button class="btn btn-outline btn-sm" data-kyc="${v.id}">📋 KYC</button>
             <button class="btn btn-outline btn-sm" data-edit="${v.id}">Edit</button>
             <button class="btn btn-outline btn-sm ${v.is_active ? 'danger' : ''}" data-toggle="${v.id}" data-active="${v.is_active}">
               ${v.is_active ? 'Suspend' : 'Activate'}
@@ -605,6 +632,9 @@
     });
 
     document.getElementById('vendorsList').addEventListener('click', async e => {
+      const kyc = e.target.closest('[data-kyc]');
+      if (kyc) { openAgreement(kyc.dataset.kyc); return; }
+
       const edit = e.target.closest('[data-edit]');
       const tgl = e.target.closest('[data-toggle]');
 
@@ -663,6 +693,136 @@
         closeModal();
         loadVendors();
       } catch (err) { toast(err.message); }
+    });
+
+    /* ---------- Merchant Agreement & KYC ---------- */
+    const KYC_DOCS = [
+      { key: 'gstin',      label: 'GSTIN Certificate',                         ph: 'GSTIN number' },
+      { key: 'pan',        label: 'PAN Card',                                  ph: 'PAN number' },
+      { key: 'aadhaar',    label: 'Aadhaar Card',                              ph: 'Aadhaar number' },
+      { key: 'ownership',  label: 'Ownership Proof (deed / electricity bill)', ph: 'Reference / bill no.' },
+      { key: 'udyam',      label: 'Udyam / MSME Registration',                 ph: 'Udyam registration no.' },
+      { key: 'items_list', label: 'Shop Items List',                           ph: 'Reference / item count' },
+      { key: 'bis',        label: 'BIS Certification (electronics)',           ph: 'BIS licence no.' },
+      { key: 'epr',        label: 'E-Waste EPR Registration (refurbished)',    ph: 'EPR registration no.' }
+    ];
+    const KYC_STATUSES = ['Pending', 'Submitted', 'Verified', 'Rejected', 'N/A'];
+    const AGREEMENT_STATUSES = ['Draft', 'Active', 'Expired', 'Terminated'];
+    let agVendorId = null;
+
+    function kycStats(v) {
+      const c = v.compliance || {}, docs = c.documents || {};
+      const statuses = KYC_DOCS.map(d => (docs[d.key] || {}).status).concat((c.bank || {}).status);
+      const verified = statuses.filter(s => s === 'Verified').length;
+      return { verified, total: statuses.length, agreement: (c.agreement || {}).status || 'Draft' };
+    }
+    function kycSummaryHtml(v) {
+      const k = kycStats(v);
+      const color = k.verified === k.total ? 'var(--green)' : k.verified > 0 ? 'var(--amber)' : 'var(--muted)';
+      return `<span style="color:${color};font-weight:600">📋 KYC ${k.verified}/${k.total} verified</span> · Agreement: <b>${esc(k.agreement)}</b>`;
+    }
+
+    function openAgreement(id) {
+      const v = vendors.find(x => x.id === id);
+      if (!v) return;
+      agVendorId = id;
+      const c = v.compliance || {};
+      const ag = c.agreement || {}, bank = c.bank || {}, docs = c.documents || {}, pol = c.policies || {};
+      const opts = (list, sel) => list.map(s => `<option ${sel === s ? 'selected' : ''}>${s}</option>`).join('');
+
+      const docRows = KYC_DOCS.map(d => {
+        const dv = docs[d.key] || {};
+        return `
+        <div class="ag-doc">
+          <div class="ag-doc-head">${esc(d.label)}</div>
+          <div class="ag-doc-grid">
+            <input id="kyc_${d.key}_number" type="text" placeholder="${esc(d.ph)}" value="${esc(dv.number || '')}">
+            <select id="kyc_${d.key}_status">${opts(KYC_STATUSES, dv.status || 'Pending')}</select>
+            <input class="wide" id="kyc_${d.key}_url" type="url" placeholder="Document link (optional)" value="${esc(dv.url || '')}">
+            <input class="wide" id="kyc_${d.key}_note" type="text" placeholder="Note (optional)" value="${esc(dv.note || '')}">
+          </div>
+        </div>`;
+      }).join('');
+
+      document.getElementById('agTitle').textContent = 'Merchant Agreement & KYC — ' + v.name;
+      document.getElementById('agBody').innerHTML = `
+        <div class="ag-section">
+          <h4>📜 Partnership Agreement</h4>
+          <div class="form-grid">
+            <div><label>Status</label><select id="ag_status">${opts(AGREEMENT_STATUSES, ag.status || 'Draft')}</select></div>
+            <div><label>Signed on</label><input id="ag_signed" type="date" value="${esc(ag.signed_on || '')}"></div>
+            <div><label>Start date</label><input id="ag_start" type="date" value="${esc(ag.start_date || '')}"></div>
+            <div><label>End date</label><input id="ag_end" type="date" value="${esc(ag.end_date || '')}"></div>
+            <div class="full"><label>Agreement / commission notes</label><textarea id="ag_notes" rows="2">${esc(ag.notes || '')}</textarea></div>
+          </div>
+        </div>
+        <div class="ag-section">
+          <h4>🏦 Bank Account Details</h4>
+          <div class="form-grid">
+            <div><label>Account holder</label><input id="bank_holder" type="text" value="${esc(bank.holder || '')}"></div>
+            <div><label>Account number</label><input id="bank_acc" type="text" value="${esc(bank.account_number || '')}"></div>
+            <div><label>IFSC</label><input id="bank_ifsc" type="text" value="${esc(bank.ifsc || '')}"></div>
+            <div><label>Bank name</label><input id="bank_name" type="text" value="${esc(bank.bank_name || '')}"></div>
+            <div><label>Verification status</label><select id="bank_status">${opts(KYC_STATUSES, bank.status || 'Pending')}</select></div>
+            <div><label>Note</label><input id="bank_note" type="text" value="${esc(bank.note || '')}"></div>
+          </div>
+        </div>
+        <div class="ag-section">
+          <h4>🗂 KYC &amp; Compliance Documents</h4>
+          ${docRows}
+        </div>
+        <div class="ag-section">
+          <h4>📋 Shop Policies</h4>
+          <label>Return / Refund policy</label>
+          <textarea id="pol_return" rows="2" placeholder="e.g. 7-day return on unused items with original packaging.">${esc(pol.return || '')}</textarea>
+          <label style="margin-top:10px">Cancellation policy</label>
+          <textarea id="pol_cancel" rows="2">${esc(pol.cancellation || '')}</textarea>
+          <label style="margin-top:10px">Delivery policy</label>
+          <textarea id="pol_delivery" rows="2">${esc(pol.delivery || '')}</textarea>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:6px">
+          <button class="btn btn-primary" id="agSave">Save Agreement &amp; KYC</button>
+          <button class="btn btn-outline" id="agCancel">Close</button>
+        </div>`;
+
+      document.getElementById('agSave').addEventListener('click', saveAgreement);
+      document.getElementById('agCancel').addEventListener('click', closeAgreement);
+      document.getElementById('agreementModal').classList.add('open');
+    }
+
+    function collectAgreement() {
+      const val = id => (document.getElementById(id) || {}).value || '';
+      const documents = {};
+      KYC_DOCS.forEach(d => {
+        documents[d.key] = {
+          number: val(`kyc_${d.key}_number`), status: val(`kyc_${d.key}_status`),
+          url: val(`kyc_${d.key}_url`), note: val(`kyc_${d.key}_note`)
+        };
+      });
+      return {
+        agreement: { status: val('ag_status'), start_date: val('ag_start'), end_date: val('ag_end'), signed_on: val('ag_signed'), notes: val('ag_notes') },
+        bank: { holder: val('bank_holder'), account_number: val('bank_acc'), ifsc: val('bank_ifsc'), bank_name: val('bank_name'), status: val('bank_status'), note: val('bank_note') },
+        documents,
+        policies: { return: val('pol_return'), cancellation: val('pol_cancel'), delivery: val('pol_delivery') }
+      };
+    }
+
+    function closeAgreement() { document.getElementById('agreementModal').classList.remove('open'); }
+
+    async function saveAgreement() {
+      const btn = document.getElementById('agSave');
+      btn.disabled = true;
+      try {
+        await apiPost({ action: 'save-vendor-agreement', vendorId: agVendorId, agreement: collectAgreement() });
+        toast('Agreement & KYC saved');
+        closeAgreement();
+        loadVendors();
+      } catch (e) { toast(e.message); }
+      finally { btn.disabled = false; }
+    }
+
+    document.getElementById('agreementModal').addEventListener('click', e => {
+      if (e.target.id === 'agreementModal') closeAgreement();
     });
 
     /* ---------- Orders (grouped per shop) ---------- */
@@ -1062,11 +1222,18 @@
     function exportModel(tab) {
       switch (tab) {
         case 'vendors':
-          return { filename: 'vendors', sheets: [{ name: 'Vendors', rows: vendors.map(v => ({
-            'Shop': v.name, 'Email': v.email, 'Phone': v.phone || '',
-            'Category': (v.categories || {}).name || '', 'Commission %': Number(v.commission_percent),
-            'Status': v.is_active ? 'Live' : 'Suspended', 'Address': v.address || '', 'Created': fmtDateTime(v.created_at)
-          })) }] };
+          return { filename: 'vendors', sheets: [{ name: 'Vendors', rows: vendors.map(v => {
+            const k = kycStats(v);
+            const dd = (v.compliance || {}).documents || {};
+            return {
+              'Shop': v.name, 'Email': v.email, 'Phone': v.phone || '',
+              'Category': (v.categories || {}).name || '', 'Commission %': Number(v.commission_percent),
+              'Status': v.is_active ? 'Live' : 'Suspended',
+              'Agreement': k.agreement, 'KYC Verified': k.verified + '/' + k.total,
+              'GSTIN': (dd.gstin || {}).number || '', 'PAN': (dd.pan || {}).number || '',
+              'Address': v.address || '', 'Created': fmtDateTime(v.created_at)
+            };
+          }) }] };
 
         case 'categories':
           return { filename: 'categories', sheets: [{ name: 'Categories', rows: categories.map(c => ({

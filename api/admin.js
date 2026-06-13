@@ -170,6 +170,19 @@ module.exports = async (req, res) => {
         return res.json({ success: true });
       }
 
+      // Merchant Partnership Agreement + KYC/compliance record (admin-managed)
+      if (action === 'save-vendor-agreement') {
+        const { vendorId } = req.body;
+        if (!vendorId) return res.status(400).json({ error: 'vendorId required' });
+        const compliance = sanitizeCompliance(req.body.agreement || {});
+        const { error } = await supabase
+          .from('vendors')
+          .update({ compliance, updated_at: new Date().toISOString() })
+          .eq('id', vendorId);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
       if (action === 'create-offer') {
         const o = req.body.offer || {};
         if (!o.name || !String(o.name).trim()) return res.status(400).json({ error: 'Offer name required.' });
@@ -304,4 +317,51 @@ async function validateAdminSession(token) {
   if (!data) return null;
   if (new Date(data.expires_at) < new Date()) return null;
   return data;
+}
+
+// ---- Merchant agreement / KYC sanitiser: only known keys, bounded lengths,
+//      enum-checked statuses. The whole record lives in vendors.compliance. ----
+const KYC_DOC_KEYS = ['gstin', 'pan', 'aadhaar', 'ownership', 'udyam', 'items_list', 'bis', 'epr'];
+const KYC_STATUSES = ['Pending', 'Submitted', 'Verified', 'Rejected', 'N/A'];
+const AGREEMENT_STATUSES = ['Draft', 'Active', 'Expired', 'Terminated'];
+const clip = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+
+function sanitizeCompliance(a) {
+  const ag = a.agreement || {}, bank = a.bank || {}, docs = a.documents || {}, pol = a.policies || {};
+  const out = { agreement: {}, bank: {}, documents: {}, policies: {} };
+
+  out.agreement = {
+    status: AGREEMENT_STATUSES.includes(ag.status) ? ag.status : 'Draft',
+    start_date: clip(ag.start_date, 20),
+    end_date: clip(ag.end_date, 20),
+    signed_on: clip(ag.signed_on, 20),
+    notes: clip(ag.notes, 2000)
+  };
+
+  out.bank = {
+    holder: clip(bank.holder, 120),
+    account_number: clip(bank.account_number, 34).replace(/\s+/g, ''),
+    ifsc: clip(bank.ifsc, 15).toUpperCase(),
+    bank_name: clip(bank.bank_name, 120),
+    status: KYC_STATUSES.includes(bank.status) ? bank.status : 'Pending',
+    note: clip(bank.note, 500)
+  };
+
+  for (const k of KYC_DOC_KEYS) {
+    const d = docs[k] || {};
+    out.documents[k] = {
+      number: clip(d.number, 80),
+      status: KYC_STATUSES.includes(d.status) ? d.status : 'Pending',
+      url: clip(d.url, 500),
+      note: clip(d.note, 500)
+    };
+  }
+
+  out.policies = {
+    return: clip(pol.return, 3000),
+    cancellation: clip(pol.cancellation, 3000),
+    delivery: clip(pol.delivery, 3000)
+  };
+
+  return out;
 }
