@@ -70,6 +70,11 @@
     .back-link { text-align: center; margin-top: 20px; }
     .back-link a { color: var(--muted); text-decoration: none; font-size: 13px; }
     .back-link a:hover { color: var(--primary); }
+    /* Smartphone: stop iOS Safari zooming in when a field is tapped (needs >=16px) */
+    html { -webkit-text-size-adjust: 100%; }
+    @media (max-width: 600px) {
+      input, select, textarea { font-size: 16px; }
+    }
   </style>
 </head>
 <body>

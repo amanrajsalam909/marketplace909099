@@ -108,6 +108,11 @@
     .addr { margin-top: 14px; font-size: 13px; color: var(--muted); }
 
     @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+    /* Smartphone: stop iOS Safari zooming in when a field is tapped (needs >=16px) */
+    html { -webkit-text-size-adjust: 100%; }
+    @media (max-width: 600px) {
+      input, select, textarea { font-size: 16px; }
+    }
   </style>
 </head>
 <body>

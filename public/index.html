@@ -455,6 +455,11 @@
     .order-links a { font-size: 12px; font-weight: 600; text-decoration: none; color: var(--primary); }
     .order-links a.danger { color: #dc2626; }
     .saved-line { font-size: 12px; color: #047857; font-weight: 600; }
+    /* Smartphone: stop iOS Safari zooming in when a field is tapped (needs >=16px) */
+    html { -webkit-text-size-adjust: 100%; }
+    @media (max-width: 600px) {
+      input, select, textarea { font-size: 16px; }
+    }
   </style>
 </head>
 <body>
@@ -778,7 +783,7 @@
     });
 
     /* ---------- Customer account (email OTP) ---------- */
-    const FIELD = 'width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:10px;box-sizing:border-box';
+    const FIELD = 'width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;margin-bottom:10px;box-sizing:border-box';
     const PBTN = 'width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer';
     const ERRB = 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;padding:9px 12px;border-radius:8px;font-size:12px;margin-bottom:10px;display:none';
 

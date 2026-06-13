@@ -129,6 +129,11 @@
       max-width: calc(100vw - 32px); text-align: center;
     }
     .toast.show { transform: translateX(-50%) translateY(0); }
+    /* Smartphone: stop iOS Safari zooming in when a field is tapped (needs >=16px) */
+    html { -webkit-text-size-adjust: 100%; }
+    @media (max-width: 600px) {
+      input, select, textarea { font-size: 16px; }
+    }
   </style>
 </head>
 <body>

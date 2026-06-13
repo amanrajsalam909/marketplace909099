@@ -77,6 +77,11 @@
       margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--border);
       font-size: 12px; color: var(--muted); text-align: center; line-height: 1.5;
     }
+    /* Smartphone: stop iOS Safari zooming in when a field is tapped (needs >=16px) */
+    html { -webkit-text-size-adjust: 100%; }
+    @media (max-width: 600px) {
+      input, select, textarea { font-size: 16px; }
+    }
   </style>
 </head>
 <body>

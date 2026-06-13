@@ -288,6 +288,11 @@
       .vendor-label { display: none; }
       .product-row { flex-wrap: wrap; }
     }
+    /* Smartphone: stop iOS Safari zooming in when a field is tapped (needs >=16px) */
+    html { -webkit-text-size-adjust: 100%; }
+    @media (max-width: 600px) {
+      input, select, textarea { font-size: 16px; }
+    }
   </style>
 </head>
 <body>
