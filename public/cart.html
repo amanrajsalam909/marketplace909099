@@ -478,9 +478,27 @@
         if (res.ok && d.addresses && Object.keys(d.addresses).length) {
           addressBook = d.addresses;
           localStorage.setItem('addressBook', JSON.stringify(addressBook));
+          autofillAddress();
           render();
         }
       } catch (_) { /* local book remains the fallback */ }
+    }
+
+    // Auto-fill the delivery form from the customer's default saved address
+    // (their last-used label, else the first saved one). Never clobbers an
+    // address they've already started typing or the one from their last order.
+    let addrAutofilled = false;
+    function autofillAddress() {
+      if (addrAutofilled) return;
+      const hasInput = ['aFlat', 'aBldg', 'aStreet', 'aArea', 'aLandmark', 'aPin']
+        .some(id => formVals[id] && String(formVals[id]).trim());
+      if (hasInput) { addrAutofilled = true; return; }
+      const label = addressBook[saveAsLabel] ? saveAsLabel : BOOK_LABELS.find(l => addressBook[l]);
+      if (!label) return; // nothing saved yet — retry after the server book loads
+      const a = addressBook[label];
+      Object.entries(PART_IDS).forEach(([id, k]) => { if (a[k]) formVals[id] = a[k]; });
+      saveAsLabel = label;
+      addrAutofilled = true;
     }
 
     function composeOneLine(a) {
@@ -739,6 +757,7 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
+    autofillAddress();
     render();
     loadMeta();
     loadAddressBook();
