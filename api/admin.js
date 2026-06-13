@@ -170,15 +170,18 @@ module.exports = async (req, res) => {
         return res.json({ success: true });
       }
 
-      // Merchant Partnership Agreement + KYC/compliance record (admin-managed)
+      // Merchant Partnership Agreement + KYC/compliance record (admin-managed).
+      // Also updates the shop category when sent, since the required documents
+      // are category-driven (Food → FSSAI, Electronics → BIS + E-Waste, …).
       if (action === 'save-vendor-agreement') {
         const { vendorId } = req.body;
         if (!vendorId) return res.status(400).json({ error: 'vendorId required' });
-        const compliance = sanitizeCompliance(req.body.agreement || {});
-        const { error } = await supabase
-          .from('vendors')
-          .update({ compliance, updated_at: new Date().toISOString() })
-          .eq('id', vendorId);
+        const update = {
+          compliance: sanitizeCompliance(req.body.agreement || {}),
+          updated_at: new Date().toISOString()
+        };
+        if ('categoryId' in req.body) update.category_id = req.body.categoryId || null;
+        const { error } = await supabase.from('vendors').update(update).eq('id', vendorId);
         if (error) throw error;
         return res.json({ success: true });
       }
@@ -321,7 +324,8 @@ async function validateAdminSession(token) {
 
 // ---- Merchant agreement / KYC sanitiser: only known keys, bounded lengths,
 //      enum-checked statuses. The whole record lives in vendors.compliance. ----
-const KYC_DOC_KEYS = ['gstin', 'pan', 'aadhaar', 'ownership', 'udyam', 'items_list', 'bis', 'epr'];
+// Master list of every document type the UI may submit (category-dependent).
+const KYC_DOC_KEYS = ['gstin', 'pan', 'aadhaar', 'ownership', 'udyam', 'items_list', 'fssai', 'bis', 'epr', 'cdsco', 'drug_license'];
 const KYC_STATUSES = ['Pending', 'Submitted', 'Verified', 'Rejected', 'N/A'];
 const AGREEMENT_STATUSES = ['Draft', 'Active', 'Expired', 'Terminated'];
 const clip = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
@@ -347,7 +351,10 @@ function sanitizeCompliance(a) {
     note: clip(bank.note, 500)
   };
 
-  for (const k of KYC_DOC_KEYS) {
+  // Store only the documents actually submitted (category-specific set),
+  // ignoring any unknown keys.
+  for (const k of Object.keys(docs)) {
+    if (!KYC_DOC_KEYS.includes(k)) continue;
     const d = docs[k] || {};
     out.documents[k] = {
       number: clip(d.number, 80),

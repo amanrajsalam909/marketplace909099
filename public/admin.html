@@ -696,23 +696,48 @@
     });
 
     /* ---------- Merchant Agreement & KYC ---------- */
-    const KYC_DOCS = [
-      { key: 'gstin',      label: 'GSTIN Certificate',                         ph: 'GSTIN number' },
-      { key: 'pan',        label: 'PAN Card',                                  ph: 'PAN number' },
-      { key: 'aadhaar',    label: 'Aadhaar Card',                              ph: 'Aadhaar number' },
-      { key: 'ownership',  label: 'Ownership Proof (deed / electricity bill)', ph: 'Reference / bill no.' },
-      { key: 'udyam',      label: 'Udyam / MSME Registration',                 ph: 'Udyam registration no.' },
-      { key: 'items_list', label: 'Shop Items List',                           ph: 'Reference / item count' },
-      { key: 'bis',        label: 'BIS Certification (electronics)',           ph: 'BIS licence no.' },
-      { key: 'epr',        label: 'E-Waste EPR Registration (refurbished)',    ph: 'EPR registration no.' }
+    // All possible KYC/compliance documents. Which ones a vendor needs depends
+    // on the shop category (e.g. Food → FSSAI, Electronics → BIS + E-Waste EPR).
+    const DOC_CATALOG = {
+      gstin:        { label: 'GSTIN Certificate',                         ph: 'GSTIN number' },
+      pan:          { label: 'PAN Card',                                  ph: 'PAN number' },
+      aadhaar:      { label: 'Aadhaar Card (owner)',                      ph: 'Aadhaar number' },
+      ownership:    { label: 'Ownership Proof (deed / electricity bill)', ph: 'Reference / bill no.' },
+      udyam:        { label: 'Udyam / MSME Registration',                 ph: 'Udyam registration no.' },
+      items_list:   { label: 'Shop Items List',                           ph: 'Reference / item count' },
+      fssai:        { label: 'FSSAI Licence (food)',                      ph: 'FSSAI licence no.' },
+      bis:          { label: 'BIS Certification',                         ph: 'BIS licence no.' },
+      epr:          { label: 'E-Waste EPR Registration',                  ph: 'EPR registration no.' },
+      cdsco:        { label: 'CDSCO Cosmetic Registration',               ph: 'CDSCO registration no.' },
+      drug_license: { label: 'Drug Licence',                             ph: 'Drug licence no.' }
+    };
+    // Documents every shop must provide, plus category-driven additions
+    // (matched on the category name, so it still works for custom categories).
+    const BASE_DOCS = ['gstin', 'pan', 'aadhaar', 'ownership', 'udyam', 'items_list'];
+    const CATEGORY_DOC_RULES = [
+      { re: /food|beverage|grocery|restaurant|cafe|bakery|dairy|sweet|snack|kitchen|tiffin|juice/i, docs: ['fssai'] },
+      { re: /electronic|mobile|computer|laptop|appliance|gadget|camera/i,                            docs: ['bis', 'epr'] },
+      { re: /toy|game/i,                                                                             docs: ['bis'] },
+      { re: /baby|infant/i,                                                                          docs: ['bis'] },
+      { re: /personal care|cosmetic|beauty|skin|salon|makeup/i,                                      docs: ['cdsco'] },
+      { re: /pharma|medic|health|drug|wellness|clinic/i,                                             docs: ['drug_license'] }
     ];
+    function requiredDocKeys(categoryName) {
+      const keys = BASE_DOCS.slice();
+      const name = categoryName || '';
+      CATEGORY_DOC_RULES.forEach(r => { if (r.re.test(name)) r.docs.forEach(d => { if (!keys.includes(d)) keys.push(d); }); });
+      return keys;
+    }
+
     const KYC_STATUSES = ['Pending', 'Submitted', 'Verified', 'Rejected', 'N/A'];
     const AGREEMENT_STATUSES = ['Draft', 'Active', 'Expired', 'Terminated'];
+    const opts = (list, sel) => list.map(s => `<option ${sel === s ? 'selected' : ''}>${s}</option>`).join('');
     let agVendorId = null;
 
     function kycStats(v) {
       const c = v.compliance || {}, docs = c.documents || {};
-      const statuses = KYC_DOCS.map(d => (docs[d.key] || {}).status).concat((c.bank || {}).status);
+      const required = requiredDocKeys(v.categories && v.categories.name);
+      const statuses = required.map(k => (docs[k] || {}).status).concat((c.bank || {}).status);
       const verified = statuses.filter(s => s === 'Verified').length;
       return { verified, total: statuses.length, agreement: (c.agreement || {}).status || 'Draft' };
     }
@@ -727,29 +752,19 @@
       if (!v) return;
       agVendorId = id;
       const c = v.compliance || {};
-      const ag = c.agreement || {}, bank = c.bank || {}, docs = c.documents || {}, pol = c.policies || {};
-      const opts = (list, sel) => list.map(s => `<option ${sel === s ? 'selected' : ''}>${s}</option>`).join('');
+      const ag = c.agreement || {}, bank = c.bank || {}, pol = c.policies || {};
 
-      const docRows = KYC_DOCS.map(d => {
-        const dv = docs[d.key] || {};
-        return `
-        <div class="ag-doc">
-          <div class="ag-doc-head">${esc(d.label)}</div>
-          <div class="ag-doc-grid">
-            <input id="kyc_${d.key}_number" type="text" placeholder="${esc(d.ph)}" value="${esc(dv.number || '')}">
-            <select id="kyc_${d.key}_status">${opts(KYC_STATUSES, dv.status || 'Pending')}</select>
-            <input class="wide" id="kyc_${d.key}_url" type="url" placeholder="Document link (optional)" value="${esc(dv.url || '')}">
-            <input class="wide" id="kyc_${d.key}_note" type="text" placeholder="Note (optional)" value="${esc(dv.note || '')}">
-          </div>
-        </div>`;
-      }).join('');
+      const catOpts = '<option value="">— None —</option>' + categories
+        .filter(ct => ct.is_active || ct.id === v.category_id)
+        .map(ct => `<option value="${ct.id}" ${v.category_id === ct.id ? 'selected' : ''}>${esc((ct.icon || '') + ' ' + ct.name)}</option>`).join('');
 
       document.getElementById('agTitle').textContent = 'Merchant Agreement & KYC — ' + v.name;
       document.getElementById('agBody').innerHTML = `
         <div class="ag-section">
           <h4>📜 Partnership Agreement</h4>
           <div class="form-grid">
-            <div><label>Status</label><select id="ag_status">${opts(AGREEMENT_STATUSES, ag.status || 'Draft')}</select></div>
+            <div><label>Shop category</label><select id="ag_category">${catOpts}</select></div>
+            <div><label>Agreement status</label><select id="ag_status">${opts(AGREEMENT_STATUSES, ag.status || 'Draft')}</select></div>
             <div><label>Signed on</label><input id="ag_signed" type="date" value="${esc(ag.signed_on || '')}"></div>
             <div><label>Start date</label><input id="ag_start" type="date" value="${esc(ag.start_date || '')}"></div>
             <div><label>End date</label><input id="ag_end" type="date" value="${esc(ag.end_date || '')}"></div>
@@ -769,7 +784,8 @@
         </div>
         <div class="ag-section">
           <h4>🗂 KYC &amp; Compliance Documents</h4>
-          ${docRows}
+          <div id="agDocsNote" class="row-sub" style="margin:-4px 0 10px"></div>
+          <div id="agDocs"></div>
         </div>
         <div class="ag-section">
           <h4>📋 Shop Policies</h4>
@@ -785,24 +801,57 @@
           <button class="btn btn-outline" id="agCancel">Close</button>
         </div>`;
 
+      // Initial documents from the vendor's saved category + saved values
+      renderDocs(v.categories && v.categories.name, c.documents || {});
+
+      // Changing the category re-renders the required documents instantly,
+      // keeping whatever the admin has already typed.
+      document.getElementById('ag_category').addEventListener('change', e => {
+        const name = (categories.find(ct => ct.id === e.target.value) || {}).name || '';
+        renderDocs(name, currentDocValues());
+      });
+
       document.getElementById('agSave').addEventListener('click', saveAgreement);
       document.getElementById('agCancel').addEventListener('click', closeAgreement);
       document.getElementById('agreementModal').classList.add('open');
     }
 
+    function docRowHtml(key, dv) {
+      const def = DOC_CATALOG[key];
+      return `
+        <div class="ag-doc">
+          <div class="ag-doc-head">${esc(def.label)}</div>
+          <div class="ag-doc-grid">
+            <input data-dockey="${key}" data-field="number" type="text" placeholder="${esc(def.ph)}" value="${esc(dv.number || '')}">
+            <select data-dockey="${key}" data-field="status">${opts(KYC_STATUSES, dv.status || 'Pending')}</select>
+            <input class="wide" data-dockey="${key}" data-field="url" type="url" placeholder="Document link (optional)" value="${esc(dv.url || '')}">
+            <input class="wide" data-dockey="${key}" data-field="note" type="text" placeholder="Note (optional)" value="${esc(dv.note || '')}">
+          </div>
+        </div>`;
+    }
+
+    function renderDocs(categoryName, values) {
+      const keys = requiredDocKeys(categoryName);
+      document.getElementById('agDocs').innerHTML = keys.map(k => docRowHtml(k, values[k] || {})).join('');
+      const note = document.getElementById('agDocsNote');
+      if (note) note.innerHTML = 'Required for <b>' + esc(categoryName || 'uncategorised') + '</b>: ' + keys.map(k => esc(DOC_CATALOG[k].label)).join(', ');
+    }
+
+    function currentDocValues() {
+      const out = {};
+      document.querySelectorAll('#agDocs [data-dockey]').forEach(el => {
+        const k = el.dataset.dockey;
+        (out[k] = out[k] || {})[el.dataset.field] = el.value;
+      });
+      return out;
+    }
+
     function collectAgreement() {
       const val = id => (document.getElementById(id) || {}).value || '';
-      const documents = {};
-      KYC_DOCS.forEach(d => {
-        documents[d.key] = {
-          number: val(`kyc_${d.key}_number`), status: val(`kyc_${d.key}_status`),
-          url: val(`kyc_${d.key}_url`), note: val(`kyc_${d.key}_note`)
-        };
-      });
       return {
         agreement: { status: val('ag_status'), start_date: val('ag_start'), end_date: val('ag_end'), signed_on: val('ag_signed'), notes: val('ag_notes') },
         bank: { holder: val('bank_holder'), account_number: val('bank_acc'), ifsc: val('bank_ifsc'), bank_name: val('bank_name'), status: val('bank_status'), note: val('bank_note') },
-        documents,
+        documents: currentDocValues(),
         policies: { return: val('pol_return'), cancellation: val('pol_cancel'), delivery: val('pol_delivery') }
       };
     }
@@ -813,7 +862,11 @@
       const btn = document.getElementById('agSave');
       btn.disabled = true;
       try {
-        await apiPost({ action: 'save-vendor-agreement', vendorId: agVendorId, agreement: collectAgreement() });
+        await apiPost({
+          action: 'save-vendor-agreement', vendorId: agVendorId,
+          categoryId: (document.getElementById('ag_category') || {}).value || null,
+          agreement: collectAgreement()
+        });
         toast('Agreement & KYC saved');
         closeAgreement();
         loadVendors();
