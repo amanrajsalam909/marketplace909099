@@ -1047,8 +1047,11 @@
     });
 
     /* ---------- Export (CSV / Excel / ODS) ---------- */
-    const fmtDateTime = d => d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '';
-    const fmtDay = d => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+    const pad2 = n => String(n).padStart(2, '0');
+    // Comma-free dd/mm/yyyy — a comma inside a date cell can shift columns in
+    // basic CSV viewers, so the export keeps dates separator-free.
+    const fmtDateTime = d => { if (!d) return ''; const x = new Date(d); return `${pad2(x.getDate())}/${pad2(x.getMonth() + 1)}/${x.getFullYear()} ${pad2(x.getHours())}:${pad2(x.getMinutes())}`; };
+    const fmtDay = d => { if (!d) return ''; const x = new Date(d); return `${pad2(x.getDate())}/${pad2(x.getMonth() + 1)}/${x.getFullYear()}`; };
     const EXPORT_LABELS = {
       vendors: 'Vendors', categories: 'Categories', orders: 'Orders', payments: 'Payments',
       accounting: 'Accounting', offers: 'Offers', reviews: 'Reviews', complaints: 'Complaints'
@@ -1149,9 +1152,12 @@
       if (!sheets.length) { toast('Nothing to export on this tab yet.'); return; }
       if (typeof XLSX === 'undefined') { toast('Export tool is still loading — try again in a moment.'); return; }
 
+      // Collapse any line breaks/tabs in text cells so a value can never break a row
+      const clean = v => typeof v === 'string' ? v.replace(/[\r\n\t]+/g, ' ').trim() : v;
       const wb = XLSX.utils.book_new();
       sheets.forEach(s => {
-        const ws = XLSX.utils.json_to_sheet(s.rows);
+        const rows = s.rows.map(r => { const o = {}; for (const k in r) o[k] = clean(r[k]); return o; });
+        const ws = XLSX.utils.json_to_sheet(rows);
         XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31)); // Excel caps sheet names at 31 chars
       });
       const d = new Date();
