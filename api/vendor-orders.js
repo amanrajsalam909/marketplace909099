@@ -28,7 +28,20 @@ async function sweepStalePending(vendorId) {
     .lt('created_at', cutoff)
     .limit(20);
 
-  for (const ord of stale || []) {
+  if (!stale || !stale.length) return;
+
+  // A pending order the vendor deliberately moved back (Undo) was already
+  // acted on — it must NOT be swept as "never confirmed".
+  const ids = stale.map(o => o.order_id);
+  const { data: reverts } = await supabase
+    .from('order_events')
+    .select('order_id')
+    .eq('event', 'status_revert')
+    .in('order_id', ids);
+  const reverted = new Set((reverts || []).map(r => r.order_id));
+
+  for (const ord of stale) {
+    if (reverted.has(ord.order_id)) continue;
     const { error } = await supabase.rpc('cancel_order', {
       p_order_id: ord.order_id, p_actor: 'system',
       p_reason: 'Auto-cancelled: shop did not confirm within 1 hour'
@@ -54,6 +67,22 @@ module.exports = async (req, res) => {
 
     if (req.method === 'GET') {
       const { status } = req.query;
+
+      // Full event history for one of this vendor's orders (detail timeline)
+      if (req.query.events) {
+        const orderId = req.query.events;
+        const { data: ord } = await supabase
+          .from('orders').select('vendor_id').eq('order_id', orderId).single();
+        if (!ord || ord.vendor_id !== session.vendor_id) {
+          return res.status(403).json({ error: 'Forbidden' });
+        }
+        const { data } = await supabase
+          .from('order_events')
+          .select('event, from_status, to_status, actor, note, created_at')
+          .eq('order_id', orderId)
+          .order('created_at', { ascending: true });
+        return res.json(data || []);
+      }
 
       // Accounting summary + ledger (period in days; 0 = today, blank = all time)
       if (req.query.accounting) {
@@ -81,7 +110,7 @@ module.exports = async (req, res) => {
 
       let query = supabase
         .from('orders')
-        .select('order_id, status, customer_name, customer_phone, delivery_address, items_json, subtotal, delivery_fee, total, payment_method, payment_status, commission_amount, created_at, updated_at')
+        .select('order_id, status, customer_name, customer_phone, delivery_address, items_json, subtotal, delivery_fee, discount_amount, offer_name, total, payment_method, payment_status, commission_amount, created_at, updated_at')
         .eq('vendor_id', session.vendor_id);
 
       if (status) query = query.eq('status', status);
@@ -162,6 +191,18 @@ module.exports = async (req, res) => {
         if (error) return res.status(400).json({ error: error.message });
 
         sendStatusUpdate(order.customer_email, orderId, 'cancelled').catch(() => {});
+        return res.json(data);
+      }
+
+      // Move an order back one step to fix a mistake (confirmed→pending,
+      // preparing→confirmed, ready→preparing). Atomic + audit-logged in the DB;
+      // delivered/cancelled orders are terminal and cannot be reverted.
+      if (action === 'revert-status') {
+        const { data, error } = await supabase.rpc('revert_order_status', {
+          p_order_id: orderId,
+          p_actor: actor
+        });
+        if (error) return res.status(400).json({ error: error.message });
         return res.json(data);
       }
 

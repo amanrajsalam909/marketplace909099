@@ -113,6 +113,26 @@
     }
     .export-pop button:hover { background: var(--bg); color: var(--primary); }
 
+    /* Order action / detail modals */
+    .vd-modal-bg {
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5);
+      display: none; align-items: center; justify-content: center; z-index: 250; padding: 20px;
+    }
+    .vd-modal-bg.open { display: flex; }
+    .vd-modal {
+      background: var(--card); border-radius: 14px; padding: 22px;
+      width: 100%; max-width: 440px; max-height: 90vh; overflow-y: auto;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+    }
+    .vd-modal h3 { font-size: 16px; font-weight: 800; color: var(--dark); margin-bottom: 14px; }
+    .vd-modal-body { font-size: 14px; color: var(--text); line-height: 1.5; }
+    .vd-modal-foot { display: flex; gap: 10px; margin-top: 18px; }
+    .save-btn.danger { background: var(--red); }
+    .save-btn.danger:hover { background: #b91c1c; }
+    .dm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .dm-money { margin: 12px 0; padding-top: 10px; border-top: 1px dashed var(--border); }
+    .dm-money .trow { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+
     /* Filter chips */
     .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
     .chip {
@@ -420,6 +440,29 @@
     </section>
   </main>
 
+  <!-- Confirmation modal (cautious order actions) -->
+  <div class="vd-modal-bg" id="confirmModal">
+    <div class="vd-modal">
+      <h3 id="cmTitle"></h3>
+      <div id="cmBody" class="vd-modal-body"></div>
+      <div class="vd-modal-foot">
+        <button class="save-btn" id="cmOk">Confirm</button>
+        <button class="cancel-btn" id="cmCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Order detail + timeline -->
+  <div class="vd-modal-bg" id="detailModal">
+    <div class="vd-modal" style="max-width:560px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <h3 id="dmTitle" style="margin:0"></h3>
+        <button class="cancel-btn" id="dmClose" style="padding:6px 12px">✕</button>
+      </div>
+      <div id="dmBody" class="vd-modal-body"></div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script>
@@ -541,9 +584,13 @@
                 <div class="order-total">${inr(o.total)}</div>
                 <div class="pay-tag">${esc(o.payment_method || 'COD')} · ${esc(o.payment_status || '')}</div>
               </div>
-              <div style="display:flex;align-items:center;gap:10px">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+                <button class="icon-btn" data-detail="${esc(o.order_id)}">🧾 Details</button>
+                <button class="icon-btn" data-print="${esc(o.order_id)}">🖨 Print</button>
+                ${['confirmed', 'preparing', 'ready'].includes(o.status)
+                  ? `<button class="icon-btn" data-revert="${esc(o.order_id)}" data-status="${esc(o.status)}">↩ Undo</button>` : ''}
                 ${['pending', 'confirmed'].includes(o.status)
-                  ? `<button class="cancel-link" data-cancel="${esc(o.order_id)}">Cancel order</button>` : ''}
+                  ? `<button class="cancel-link" data-cancel="${esc(o.order_id)}">Cancel</button>` : ''}
                 ${o.status === 'delivered'
                   ? `<span class="done-tag">✓ Completed${o.delivery_proof ? '<br><span class="pay-tag" style="font-weight:600">' + esc(o.delivery_proof) + (o.delivered_at ? ' · ' + new Date(o.delivered_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '') + '</span>' : ''}</span>`
                   : o.status === 'cancelled'
@@ -556,51 +603,238 @@
           </div>`;
     }
 
-    document.getElementById('ordersList').addEventListener('click', async e => {
+    const REVERT_MAP = { confirmed: 'pending', preparing: 'confirmed', ready: 'preparing' };
+
+    // Every order action goes through a confirmation so nothing is changed by
+    // an accidental tap — the "with caution" guard.
+    document.getElementById('ordersList').addEventListener('click', e => {
+      const detailBtn = e.target.closest('[data-detail]');
+      if (detailBtn) return openDetail(detailBtn.dataset.detail);
+
+      const printBtn = e.target.closest('[data-print]');
+      if (printBtn) return printTicket(printBtn.dataset.print);
+
       const cancelBtn = e.target.closest('[data-cancel]');
       if (cancelBtn) {
-        const reason = prompt('Cancel this order? The customer will be emailed and stock restored.\nOptional reason:');
-        if (reason === null) return;
-        try {
-          const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token, action: 'cancel', orderId: cancelBtn.dataset.cancel, reason })
-          });
-          const data = await res.json();
-          if (!res.ok || !data.success) throw new Error(data.error || 'Cancel failed');
-          toast('Order cancelled, stock restored');
-          loadOrders();
-          loadProducts();
-        } catch (err) {
-          toast('Could not cancel: ' + err.message);
-        }
+        const o = allOrders.find(x => x.order_id === cancelBtn.dataset.cancel) || {};
+        confirmAction({
+          title: 'Cancel this order?',
+          html: orderSummaryHtml(o)
+            + `<p style="color:var(--red);font-size:13px;margin-top:10px">The customer is emailed and all stock is restored. This cannot be undone.</p>`
+            + `<label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 5px;text-transform:uppercase;letter-spacing:0.4px">Reason (optional)</label>`
+            + `<input id="cmReason" type="text" placeholder="e.g. item out of stock" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg)">`,
+          confirmLabel: 'Cancel order', danger: true,
+          onConfirm: () => doCancel(cancelBtn.dataset.cancel, (document.getElementById('cmReason') || {}).value || '')
+        });
         return;
       }
 
-      const btn = e.target.closest('[data-advance]');
-      if (!btn) return;
-      const next = STATUS_FLOW[STATUS_FLOW.indexOf(btn.dataset.status) + 1];
-      if (!next) return;
+      const revertBtn = e.target.closest('[data-revert]');
+      if (revertBtn) {
+        const from = revertBtn.dataset.status;
+        const prev = REVERT_MAP[from];
+        const o = allOrders.find(x => x.order_id === revertBtn.dataset.revert) || {};
+        confirmAction({
+          title: 'Move order back?',
+          html: orderSummaryHtml(o)
+            + `<p style="margin-top:10px">Move from <b>${STATUS_LABELS[from]}</b> back to <b>${STATUS_LABELS[prev]}</b>.</p>`
+            + `<p style="color:var(--muted);font-size:13px;margin-top:6px">Use this only to correct a mistake.</p>`,
+          confirmLabel: '↩ Move back',
+          onConfirm: () => doRevert(revertBtn.dataset.revert, from)
+        });
+        return;
+      }
 
-      btn.disabled = true;
-      btn.textContent = 'Updating…';
+      const advBtn = e.target.closest('[data-advance]');
+      if (!advBtn) return;
+      const from = advBtn.dataset.status;
+      const next = STATUS_FLOW[STATUS_FLOW.indexOf(from) + 1];
+      if (!next) return;
+      const o = allOrders.find(x => x.order_id === advBtn.dataset.advance) || {};
+      confirmAction({
+        title: NEXT_LABEL[from] || 'Advance order',
+        html: orderSummaryHtml(o)
+          + `<p style="margin-top:10px">Move to <b>${STATUS_LABELS[next]}</b>.</p>`
+          + (next === 'ready'
+              ? `<p style="color:var(--amber);font-size:13px;margin-top:6px">⚠ This hands the order to the delivery partner and emails the customer their delivery code.</p>`
+              : ''),
+        confirmLabel: '✓ ' + (NEXT_LABEL[from] || 'Advance'),
+        onConfirm: () => doAdvance(advBtn.dataset.advance, from)
+      });
+    });
+
+    async function doAdvance(orderId, fromStatus) {
+      const next = STATUS_FLOW[STATUS_FLOW.indexOf(fromStatus) + 1];
+      if (!next) return;
       try {
         const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'update-status', orderId: btn.dataset.advance, newStatus: next })
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'update-status', orderId, newStatus: next })
         });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || 'Update failed');
         toast('Order moved to ' + STATUS_LABELS[next]);
         loadOrders();
-      } catch (err) {
-        toast('Could not update: ' + err.message);
-        btn.disabled = false;
-        btn.textContent = NEXT_LABEL[btn.dataset.status] || 'Advance';
+      } catch (err) { toast('Could not update: ' + err.message); }
+    }
+
+    async function doRevert(orderId, fromStatus) {
+      const prev = REVERT_MAP[fromStatus];
+      try {
+        const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'revert-status', orderId })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Could not move the order back');
+        toast('Order moved back to ' + (STATUS_LABELS[prev] || prev));
+        loadOrders();
+      } catch (err) { toast(err.message); }
+    }
+
+    async function doCancel(orderId, reason) {
+      try {
+        const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, action: 'cancel', orderId, reason })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Cancel failed');
+        toast('Order cancelled, stock restored');
+        loadOrders();
+        loadProducts();
+      } catch (err) { toast('Could not cancel: ' + err.message); }
+    }
+
+    /* ---------- Confirmation modal ---------- */
+    function orderSummaryHtml(o) {
+      if (!o || !o.order_id) return '';
+      return `<div style="background:var(--bg);border-radius:8px;padding:10px 12px;font-size:13px">
+        <b>${esc(o.order_id)}</b> · ${esc(o.customer_name || '')} · ${esc(o.customer_phone || '')}<br>
+        ${(o.items || []).map(i => esc(i.name) + ' × ' + i.quantity).join(', ')}<br>
+        <b>${inr(o.total || 0)}</b> · ${esc(o.payment_method || '')} · ${esc(o.payment_status || '')}
+      </div>`;
+    }
+
+    function confirmAction({ title, html, confirmLabel, danger, onConfirm }) {
+      const modal = document.getElementById('confirmModal');
+      document.getElementById('cmTitle').textContent = title;
+      document.getElementById('cmBody').innerHTML = html;
+      const ok = document.getElementById('cmOk');
+      ok.textContent = confirmLabel || 'Confirm';
+      ok.className = 'save-btn' + (danger ? ' danger' : '');
+      modal.classList.add('open');
+      const close = () => { modal.classList.remove('open'); ok.onclick = null; modal.onclick = null; };
+      ok.onclick = async () => { close(); await onConfirm(); };
+      document.getElementById('cmCancel').onclick = close;
+      modal.onclick = ev => { if (ev.target === modal) close(); };
+    }
+
+    /* ---------- Order detail + event timeline ---------- */
+    function eventLabel(e) {
+      const s = x => STATUS_LABELS[x] || x;
+      switch (e.event) {
+        case 'placed': return 'Order placed' + (e.note ? ' (' + e.note + ')' : '');
+        case 'status_change': return s(e.from_status) + ' → ' + s(e.to_status);
+        case 'status_revert': return 'Moved back: ' + s(e.from_status) + ' → ' + s(e.to_status);
+        case 'cancelled': return 'Cancelled' + (e.note ? ': ' + e.note : '');
+        case 'payment_verified': return 'Payment verified' + (e.note ? ' (UTR ' + e.note + ')' : '');
+        case 'cash_collected': return 'Cash collected by delivery partner';
+        case 'delivery_verified': return 'Delivered — ' + (e.note || 'OTP verified');
+        default: return e.event;
       }
-    });
+    }
+    function actorSuffix(a) {
+      if (!a) return '';
+      if (a === 'customer') return ' · customer';
+      if (a === 'delivery') return ' · delivery';
+      if (a === 'system') return ' · automatic';
+      if (a === 'admin') return ' · admin';
+      if (a.indexOf('vendor:') === 0) return ' · you';
+      return ' · ' + a;
+    }
+
+    async function openDetail(orderId) {
+      const o = allOrders.find(x => x.order_id === orderId);
+      if (!o) return;
+      const items = o.items || [];
+      document.getElementById('dmTitle').textContent = o.order_id;
+      document.getElementById('dmBody').innerHTML = `
+        <div style="margin-bottom:12px"><span class="pill ${esc(o.status)}">${STATUS_LABELS[o.status] || esc(o.status)}</span></div>
+        <div class="dm-grid">
+          <div><div class="meta-label">Customer</div><div class="meta-value">${esc(o.customer_name)}</div></div>
+          <div><div class="meta-label">Phone</div><div class="meta-value"><a href="tel:${esc(o.customer_phone)}" style="color:var(--primary);text-decoration:none">${esc(o.customer_phone)}</a></div></div>
+        </div>
+        <div style="margin:10px 0"><div class="meta-label">Delivery address</div><div class="meta-value">${esc(o.delivery_address)}</div></div>
+        <div class="order-items">${items.map(i => `<div class="oitem"><span>${esc(i.name)} × ${i.quantity}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}</div>
+        <div class="dm-money">
+          <div class="trow"><span>Items subtotal</span><span>${inr(o.subtotal || 0)}</span></div>
+          <div class="trow"><span>Delivery fee</span><span>${inr(o.delivery_fee || 0)}</span></div>
+          ${Number(o.discount_amount) > 0 ? `<div class="trow" style="color:#047857"><span>Offer: ${esc(o.offer_name || '')}</span><span>− ${inr(o.discount_amount)}</span></div>` : ''}
+          <div class="trow"><span>Commission</span><span style="color:var(--red)">− ${inr(o.commission_amount || 0)}</span></div>
+          <div class="trow" style="font-weight:800;color:var(--dark);font-size:15px"><span>Order total</span><span>${inr(o.total)}</span></div>
+        </div>
+        <div class="meta-label" style="margin-top:6px">Payment</div>
+        <div class="meta-value">${esc(o.payment_method)} · ${esc(o.payment_status || '')}</div>
+        <div class="meta-label" style="margin-top:14px">History</div>
+        <div id="dmTimeline" style="margin-top:6px;font-size:13px;color:var(--muted)">Loading…</div>`;
+      document.getElementById('detailModal').classList.add('open');
+
+      try {
+        const res = await fetch('/api/vendor-orders?events=' + encodeURIComponent(orderId) + '&token=' + encodeURIComponent(token));
+        const evs = res.ok ? await res.json() : [];
+        const tl = document.getElementById('dmTimeline');
+        if (!tl) return;
+        tl.innerHTML = evs.length
+          ? evs.map(e => `<div style="display:flex;gap:10px;padding:6px 0;border-top:1px solid #f1f5f9">
+              <span style="min-width:140px;color:var(--dark);font-weight:600">${esc(new Date(e.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }))}</span>
+              <span>${esc(eventLabel(e) + actorSuffix(e.actor))}</span></div>`).join('')
+          : 'No history recorded.';
+      } catch (_) {
+        const tl = document.getElementById('dmTimeline');
+        if (tl) tl.textContent = 'Could not load history.';
+      }
+    }
+
+    document.getElementById('dmClose').addEventListener('click', () => document.getElementById('detailModal').classList.remove('open'));
+    document.getElementById('detailModal').addEventListener('click', e => { if (e.target.id === 'detailModal') e.currentTarget.classList.remove('open'); });
+
+    /* ---------- Print order ticket ---------- */
+    function printTicket(orderId) {
+      const o = allOrders.find(x => x.order_id === orderId);
+      if (!o) return;
+      const items = o.items || [];
+      const w = window.open('', '_blank', 'width=380,height=640');
+      if (!w) { toast('Allow pop-ups to print the ticket.'); return; }
+      const rows = items.map(i => `<tr><td>${esc(i.name)} × ${i.quantity}</td><td style="text-align:right">${inr(i.price * i.quantity)}</td></tr>`).join('');
+      w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(o.order_id)}</title><style>
+        *{font-family:'Courier New',monospace;font-size:13px;margin:0;padding:0}
+        body{padding:16px;color:#000} h2{font-size:16px;margin-bottom:4px}
+        .muted{color:#444;font-size:12px} hr{border:none;border-top:1px dashed #000;margin:9px 0}
+        table{width:100%;border-collapse:collapse} td{padding:3px 0;vertical-align:top}
+        .tot{font-weight:bold;font-size:15px} .center{text-align:center}
+      </style></head><body>
+        <h2>${esc(vendor.name || 'Shop')}</h2>
+        <div class="muted">Order ${esc(o.order_id)}<br>${esc(new Date(o.created_at).toLocaleString('en-IN'))}</div>
+        <hr>
+        <div><b>${esc(o.customer_name)}</b><br>${esc(o.customer_phone)}<br>${esc(o.delivery_address)}</div>
+        <hr>
+        <table>${rows}</table>
+        <hr>
+        <table>
+          <tr><td>Subtotal</td><td style="text-align:right">${inr(o.subtotal || 0)}</td></tr>
+          <tr><td>Delivery</td><td style="text-align:right">${inr(o.delivery_fee || 0)}</td></tr>
+          ${Number(o.discount_amount) > 0 ? `<tr><td>Discount</td><td style="text-align:right">- ${inr(o.discount_amount)}</td></tr>` : ''}
+          <tr class="tot"><td>TOTAL</td><td style="text-align:right">${inr(o.total)}</td></tr>
+        </table>
+        <div class="muted" style="margin-top:6px">${esc(o.payment_method)} · ${esc(o.payment_status || '')}</div>
+        <hr>
+        <div class="muted center">RajkotMarket</div>
+      </body></html>`);
+      w.document.close();
+      w.focus();
+      setTimeout(() => { try { w.print(); } catch (_) {} }, 300);
+    }
 
     document.getElementById('chips').addEventListener('click', e => {
       const chip = e.target.closest('.chip');
