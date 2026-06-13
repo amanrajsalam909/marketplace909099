@@ -1239,7 +1239,7 @@
           return { filename: 'orders', sheets: [{ name: 'Orders', rows: list.map(o => ({
             'Order ID': o.order_id, 'Status': STATUS_LABELS[o.status] || o.status,
             'Customer': o.customer_name, 'Phone': o.customer_phone, 'Address': o.delivery_address,
-            'Items': (o.items || []).map(i => `${i.name} × ${i.quantity}`).join('; '),
+            'Items': (o.items || []).map(i => `${i.name} × ${i.quantity}`).join(' | '),
             'Subtotal': Number(o.subtotal || 0), 'Delivery Fee': Number(o.delivery_fee || 0),
             'Commission': Number(o.commission_amount || 0), 'Total': Number(o.total),
             'Payment Method': o.payment_method || '', 'Payment Status': o.payment_status || '',
@@ -1305,7 +1305,7 @@
       const clean = v => {
         if (typeof v !== 'string') return v;
         let s = v.replace(/[\r\n\t]+/g, ' ');
-        if (fmt === 'csv') s = s.replace(/,/g, ' ');
+        if (fmt === 'csv') s = s.replace(/[;,]/g, ' '); // , and ; both act as delimiters in some locales
         return s.replace(/\s+/g, ' ').trim();
       };
       const wb = XLSX.utils.book_new();
