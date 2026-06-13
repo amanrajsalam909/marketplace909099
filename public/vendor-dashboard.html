@@ -1240,7 +1240,8 @@
             'Subtotal': Number(o.subtotal || 0), 'Delivery Fee': Number(o.delivery_fee || 0),
             'Commission': Number(o.commission_amount || 0), 'Total': Number(o.total),
             'Payment Method': o.payment_method || '', 'Payment Status': o.payment_status || '',
-            'When': fmtDateTime(o.created_at)
+            'Order Date': fmtDateTime(o.created_at),
+            'Delivered At': o.delivered_at ? fmtDateTime(o.delivered_at) : ''
           })) }] };
         }
         case 'products':
