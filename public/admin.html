@@ -502,6 +502,12 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...body, token })
     });
+    // Reviews & complaints are served by /api/feedback, not /api/admin.
+    const fbPost = body => api('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, token })
+    });
 
     /* ---------- Stats ---------- */
     async function loadStats() {
@@ -1221,11 +1227,11 @@
       const del = e.target.closest('[data-rev-delete]');
       try {
         if (ap) {
-          await apiPost({ action: 'set-review-approval', reviewId: ap.dataset.revApprove, approved: ap.dataset.approved !== 'true' });
+          await fbPost({ action: 'set-review-approval', reviewId: ap.dataset.revApprove, approved: ap.dataset.approved !== 'true' });
           toast('Review updated'); loadReviews();
         } else if (del) {
           if (!confirm('Delete this review permanently?')) return;
-          await apiPost({ action: 'delete-review', reviewId: del.dataset.revDelete });
+          await fbPost({ action: 'delete-review', reviewId: del.dataset.revDelete });
           toast('Review deleted'); loadReviews();
         }
       } catch (err) { toast(err.message); }
@@ -1264,7 +1270,7 @@
       const sel = e.target.closest('[data-comp]');
       if (!sel) return;
       try {
-        await apiPost({ action: 'update-complaint', complaintId: sel.dataset.comp, status: sel.value });
+        await fbPost({ action: 'update-complaint', complaintId: sel.dataset.comp, status: sel.value });
         toast('Complaint status updated');
       } catch (err) { toast(err.message); }
     });
@@ -1278,7 +1284,7 @@
       if (!confirm('Email this solution to the customer and mark the complaint Resolved?')) return;
       btn.disabled = true; btn.textContent = 'Sending…';
       try {
-        await apiPost({ action: 'resolve-complaint', complaintId: btn.dataset.resolve, resolution });
+        await fbPost({ action: 'resolve-complaint', complaintId: btn.dataset.resolve, resolution });
         toast('Solution emailed · complaint resolved');
         loadComplaints();
       } catch (err) {
