@@ -380,7 +380,6 @@
       .container { padding: 24px 16px 48px; }
       .products-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
       .btn { padding: 8px 12px; font-size: 13px; }
-      .drawer-right { width: 100vw; }
     }
 
     /* Hamburger button (three lines) */
@@ -407,7 +406,6 @@
       box-shadow: var(--shadow-lg); transition: transform 0.25s ease;
     }
     .drawer-left  { left: 0;  transform: translateX(-100%); }
-    .drawer-right { right: 0; width: 440px; transform: translateX(100%); }
     .drawer.show { transform: translateX(0); }
     .drawer-head {
       display: flex; align-items: center; justify-content: space-between;
@@ -432,29 +430,6 @@
     .cat-menu-item.active { background: var(--dark); color: #fff; }
     .cat-menu-icon { font-size: 18px; width: 22px; text-align: center; }
 
-    /* Orders inside the drawer */
-    .order-card {
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 14px; margin-bottom: 12px;
-    }
-    .order-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .order-id { font-size: 14px; font-weight: 800; color: var(--dark); }
-    .order-shop { font-size: 12px; color: var(--muted); margin-top: 2px; }
-    .pill { padding: 4px 11px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
-    .pill.pending   { background: #fef3c7; color: #92400e; }
-    .pill.confirmed { background: #dbeafe; color: #1e40af; }
-    .pill.preparing { background: #ffedd5; color: #9a3412; }
-    .pill.ready     { background: #e0e7ff; color: #3730a3; }
-    .pill.delivered { background: #d1fae5; color: #065f46; }
-    .pill.cancelled { background: #fee2e2; color: #991b1b; }
-    .order-items { font-size: 13px; color: var(--text); margin: 10px 0; line-height: 1.6; }
-    .order-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; border-top: 1px solid #e2e8f0; padding-top: 10px; }
-    .order-when { font-size: 12px; color: var(--muted); }
-    .order-total { font-size: 15px; font-weight: 800; color: var(--dark); }
-    .order-links { display: flex; gap: 14px; }
-    .order-links a { font-size: 12px; font-weight: 600; text-decoration: none; color: var(--primary); }
-    .order-links a.danger { color: #dc2626; }
-    .saved-line { font-size: 12px; color: #047857; font-weight: 600; }
     /* Smartphone: stop iOS Safari zooming in when a field is tapped (needs >=16px) */
     html { -webkit-text-size-adjust: 100%; }
     @media (max-width: 600px) {
@@ -474,7 +449,6 @@
       </div>
       <div class="header-actions">
         <a class="btn btn-ghost" href="track.html">Track Order</a>
-        <button class="btn btn-ghost" id="ordersBtn">📦 Orders</button>
         <button class="btn btn-ghost" id="accountBtn">Sign In</button>
         <a class="btn btn-primary" href="cart.html">🛒 Cart <span class="cart-count" id="cartCount"></span></a>
       </div>
@@ -515,15 +489,7 @@
     <div class="drawer-body" id="catMenuList"></div>
   </aside>
 
-  <aside class="drawer drawer-right" id="ordersDrawer" aria-label="My orders">
-    <div class="drawer-head">
-      <span class="drawer-title">📦 My Orders</span>
-      <button class="drawer-close" data-close-drawer aria-label="Close">✕</button>
-    </div>
-    <div class="drawer-body" id="ordersList"></div>
-  </aside>
-
-  <!-- Sign-in / My Orders modal -->
+  <!-- Sign-in modal -->
   <div id="modalBg" style="position:fixed;inset:0;background:rgba(15,23,42,0.5);display:none;align-items:center;justify-content:center;z-index:150;padding:20px">
     <div style="background:#fff;border-radius:14px;padding:24px;width:100%;max-width:400px;max-height:85vh;overflow-y:auto">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -891,77 +857,6 @@
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawers(); });
 
     document.getElementById('menuBtn').addEventListener('click', () => openDrawer(document.getElementById('catDrawer')));
-
-    const STATUS_LABELS = { pending: 'Pending', confirmed: 'Confirmed', preparing: 'Preparing', ready: 'Out for Delivery', delivered: 'Delivered', cancelled: 'Cancelled' };
-
-    document.getElementById('ordersBtn').addEventListener('click', () => {
-      if (!cust) { toast('Please sign in to see your orders.'); showSignIn(); return; }
-      openDrawer(document.getElementById('ordersDrawer'));
-      loadOrders();
-    });
-
-    async function loadOrders() {
-      const el = document.getElementById('ordersList');
-      el.innerHTML = '<div class="state">Loading your orders…</div>';
-      try {
-        const res = await fetch('/api/orders?myOrders=1&token=' + encodeURIComponent(cust.token));
-        if (res.status === 401) {
-          localStorage.removeItem('custSession'); cust = null; refreshAccountBtn(); closeDrawers();
-          toast('Session expired — please sign in again.'); return;
-        }
-        const orders = await res.json();
-        if (!orders.length) {
-          el.innerHTML = '<div class="state">No orders yet — browse the shops to place your first order!</div>';
-          return;
-        }
-        el.innerHTML = orders.map(o => {
-          const items = Array.isArray(o.items_json) ? o.items_json : [];
-          const itemsLine = items.map(i => esc(i.name) + ' × ' + i.quantity).join(' · ');
-          const canCancel = o.status === 'pending' && (Date.now() - new Date(o.created_at).getTime() < 10 * 60 * 1000);
-          return `
-          <div class="order-card">
-            <div class="order-top">
-              <div>
-                <div class="order-id">${esc(o.order_id)}</div>
-                <div class="order-shop">🏪 ${esc((o.vendors || {}).name || 'Shop')}</div>
-              </div>
-              <span class="pill ${esc(o.status)}">${STATUS_LABELS[o.status] || esc(o.status)}</span>
-            </div>
-            ${itemsLine ? `<div class="order-items">${itemsLine}</div>` : ''}
-            ${Number(o.discount_amount) > 0 ? `<div class="saved-line">🎉 ${esc(o.offer_name || 'Offer')} — you saved ${inr(o.discount_amount)}</div>` : ''}
-            <div class="order-foot">
-              <span class="order-when">${new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
-              <div style="display:flex;align-items:center;gap:14px">
-                <span class="order-total">${inr(o.total)}</span>
-                <div class="order-links">
-                  <a href="track.html?orderId=${encodeURIComponent(o.order_id)}&phone=${encodeURIComponent(cust.phone)}">Track</a>
-                  ${canCancel ? `<a href="#" class="danger" data-cancel="${esc(o.order_id)}">Cancel</a>` : ''}
-                </div>
-              </div>
-            </div>
-          </div>`;
-        }).join('');
-      } catch (e) {
-        el.innerHTML = '<div class="state">Could not load your orders. Please try again.</div>';
-      }
-    }
-
-    document.getElementById('ordersList').addEventListener('click', async e => {
-      const c = e.target.closest('[data-cancel]');
-      if (!c) return;
-      e.preventDefault();
-      if (!confirm('Cancel this order?')) return;
-      try {
-        const res = await fetch('/api/orders', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'cancel', token: cust.token, orderId: c.dataset.cancel })
-        });
-        const d = await res.json();
-        if (!d.success) throw new Error(d.error || 'Could not cancel');
-        toast('Order cancelled');
-        loadOrders();
-      } catch (err) { toast(err.message); }
-    });
 
     refreshAccountBtn();
     loadMarketplace();
