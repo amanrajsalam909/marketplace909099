@@ -373,6 +373,7 @@
             </div>
             ${itemsLine ? `<div class="order-items">${itemsLine}</div>` : ''}
             ${Number(o.discount_amount) > 0 ? `<div class="saved-line">🎉 ${esc(o.offer_name || 'Offer')} — you saved ${inr(o.discount_amount)}</div>` : ''}
+            ${o.status === 'ready' ? `<div id="otp-${esc(o.order_id)}"></div>` : ''}
             <div class="order-foot">
               <span class="order-when">${new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} · ${esc(o.payment_method)} · ${esc(o.payment_status || '')}</span>
               <div style="display:flex;align-items:center;gap:16px">
@@ -385,12 +386,42 @@
             </div>
           </div>`;
         }).join('');
+        // Show the delivery code for any order that's out for delivery
+        orders.filter(o => o.status === 'ready').forEach(o => loadDeliveryOtp(o.order_id));
       } catch (e) {
         el.innerHTML = '<div class="state">Could not load your orders. Refresh to retry.</div>';
       }
     }
 
+    // The delivery code is owner-only and only exists while the order is out
+    // for delivery; the account holder always owns these orders.
+    async function loadDeliveryOtp(orderId) {
+      const slot = document.getElementById('otp-' + orderId);
+      if (!slot) return;
+      try {
+        const res = await fetch('/api/orders?deliveryOtp=' + encodeURIComponent(orderId)
+          + '&token=' + encodeURIComponent(cust.token));
+        const d = await res.json();
+        if (!d.available || !d.otp) return; // expired / not ready — show nothing
+        slot.innerHTML = `
+          <div style="margin:10px 0;text-align:center;border:2px dashed var(--primary);border-radius:10px;padding:12px;background:#fff7ed">
+            <div style="font-size:12px;font-weight:700;color:var(--dark)">🔐 Delivery code</div>
+            <div style="font-size:30px;font-weight:800;letter-spacing:8px;color:var(--primary)">${esc(d.otp)}</div>
+            <button type="button" data-copy-otp="${esc(d.otp)}" style="margin-top:8px;border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">Copy code</button>
+            <div style="font-size:11px;color:var(--muted);margin-top:8px">Share with the delivery partner <b>only when the order is in your hands</b>.</div>
+          </div>`;
+      } catch (_) { /* non-critical */ }
+    }
+
     document.getElementById('ordersList').addEventListener('click', async e => {
+      const copyOtp = e.target.closest('[data-copy-otp]');
+      if (copyOtp) {
+        navigator.clipboard.writeText(copyOtp.dataset.copyOtp).then(() => {
+          copyOtp.textContent = 'Copied!';
+          setTimeout(() => { copyOtp.textContent = 'Copy code'; }, 1500);
+        });
+        return;
+      }
       const c = e.target.closest('[data-cancel]');
       if (!c) return;
       e.preventDefault();
