@@ -1298,8 +1298,16 @@
       const sheets = model ? model.sheets.filter(s => s.rows.length) : [];
       if (!sheets.length) { toast('Nothing to export on this tab yet.'); return; }
       if (typeof XLSX === 'undefined') { toast('Export tool is still loading — try again in a moment.'); return; }
-      // Collapse any line breaks/tabs in text cells so a value can never break a row
-      const clean = v => typeof v === 'string' ? v.replace(/[\r\n\t]+/g, ' ').trim() : v;
+      // CSV viewers that ignore quotes split on any comma inside a value — e.g.
+      // an order with several items, or an address. For CSV we replace in-value
+      // commas with spaces so columns always line up regardless of item count;
+      // XLSX/ODS keep commas exactly, as those formats have no delimiter.
+      const clean = v => {
+        if (typeof v !== 'string') return v;
+        let s = v.replace(/[\r\n\t]+/g, ' ');
+        if (fmt === 'csv') s = s.replace(/,/g, ' ');
+        return s.replace(/\s+/g, ' ').trim();
+      };
       const wb = XLSX.utils.book_new();
       sheets.forEach(s => {
         const rows = s.rows.map(r => { const o = {}; for (const k in r) o[k] = clean(r[k]); return o; });
