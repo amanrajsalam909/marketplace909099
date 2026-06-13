@@ -342,6 +342,7 @@
         <button class="tab" data-tab="products">Products</button>
         <button class="tab" data-tab="offers">Offers</button>
         <button class="tab" data-tab="accounting">Accounting</button>
+        <button class="tab" data-tab="returns">Returns</button>
         <button class="tab" data-tab="settings">Shop Settings</button>
       </div>
       <div class="export-wrap" id="exportWrap">
@@ -436,6 +437,11 @@
         <button class="chip" data-days="">All Time</button>
       </div>
       <div id="accBody"><div class="state">Loading accounts…</div></div>
+    </section>
+
+    <section class="panel" id="panel-returns">
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Returns for your shop are handled by the marketplace admin. Track their status here — refunded items have their stock restored automatically.</p>
+      <div id="returnsBody"><div class="state">Loading returns…</div></div>
     </section>
 
     <section class="panel" id="panel-settings">
@@ -1357,6 +1363,37 @@
       toast('Exported ' + fmt.toUpperCase());
     }
 
+    /* ---------- Returns (read-only; admin-handled) ---------- */
+    const VRET_BADGE = {
+      'Requested': 'background:#fef3c7;color:#92400e', 'Approved': 'background:#dbeafe;color:#1e40af',
+      'Rejected': 'background:#fee2e2;color:#991b1b', 'Picked up': 'background:#e0e7ff;color:#3730a3',
+      'Refunded': 'background:#d1fae5;color:#065f46'
+    };
+    async function loadReturns() {
+      const el = document.getElementById('returnsBody');
+      el.innerHTML = '<div class="state">Loading returns…</div>';
+      try {
+        const res = await fetch('/api/feedback?vendorReturns=1&token=' + encodeURIComponent(token));
+        if (res.status === 401) { logout(); return; }
+        if (!res.ok) throw new Error('Could not load returns.');
+        const list = await res.json();
+        if (!Array.isArray(list) || !list.length) { el.innerHTML = '<div class="state">No returns for your shop. 🎉</div>'; return; }
+        el.innerHTML = list.map(r => `
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+              <div style="font-weight:800;color:var(--dark);font-size:14px">${esc(r.order_id)}</div>
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;${VRET_BADGE[r.status] || VRET_BADGE['Requested']}">${esc(r.status)}</span>
+            </div>
+            <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">Requested ${new Date(r.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</div>
+            ${r.admin_note ? `<div style="font-size:12px;color:var(--text);margin-top:8px;white-space:pre-wrap;border-top:1px dashed var(--border);padding-top:8px"><b>Admin note:</b> ${esc(r.admin_note)}</div>` : ''}
+            ${r.status === 'Refunded' && r.refund_amount != null ? `<div style="font-size:12px;color:#059669;font-weight:600;margin-top:6px">💸 Refunded ${inr(r.refund_amount)}${r.refund_method ? ' via ' + esc(r.refund_method) : ''} · stock restored</div>` : ''}
+          </div>`).join('');
+      } catch (e) {
+        el.innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
     const exportBtn = document.getElementById('exportBtn');
     const exportPop = document.getElementById('exportPop');
     exportBtn.addEventListener('click', e => { e.stopPropagation(); exportPop.classList.toggle('open'); });
@@ -1386,6 +1423,7 @@
         if (tab.dataset.tab === 'settings' && !settingsLoaded) loadSettings();
         if (tab.dataset.tab === 'accounting') loadAccounting();
         if (tab.dataset.tab === 'offers') loadOffers();
+        if (tab.dataset.tab === 'returns') loadReturns();
         updateExportLabel();
       });
     });

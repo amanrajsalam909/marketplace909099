@@ -56,6 +56,18 @@ module.exports = async (req, res) => {
         return res.json(data || []);
       }
 
+      // Logged-in vendor: returns for their own orders (read-only)
+      if (req.query.vendorReturns) {
+        const vs = await validateVendorSession(req.query.token);
+        if (!vs) return res.status(401).json({ error: 'Not logged in.' });
+        const { data } = await supabase
+          .from('return_requests')
+          .select('order_id, reason, status, admin_note, refund_amount, refund_method, created_at, updated_at')
+          .eq('vendor_id', vs.vendor_id)
+          .order('created_at', { ascending: false }).limit(200);
+        return res.json(data || []);
+      }
+
       // Admin: all reviews or all complaints
       const session = await validateAdminSession(req.query.token);
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
@@ -260,6 +272,15 @@ async function ownOrder(orderId, phone) {
     .eq('customer_phone', norm)
     .single();
   return data || null;
+}
+
+async function validateVendorSession(token) {
+  if (!token) return null;
+  const { data } = await supabase
+    .from('vendor_sessions').select('vendor_id, expires_at').eq('token', token).single();
+  if (!data) return null;
+  if (new Date(data.expires_at) < new Date()) return null;
+  return data;
 }
 
 async function validateAdminSession(token) {
