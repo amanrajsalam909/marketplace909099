@@ -6,6 +6,8 @@
   <title>Vendor Dashboard — Rajkot Market</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- SheetJS (community): CSV / XLSX / ODS export — runs entirely in the browser -->
+  <script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <style>
     :root {
       --primary: #e85d04;
@@ -83,6 +85,33 @@
 
     .panel { display: none; }
     .panel.active { display: block; }
+
+    /* Export control */
+    .tabsbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; margin-bottom: 18px;
+    }
+    .export-wrap { position: relative; }
+    .export-btn {
+      background: var(--card); color: var(--text); border: 1px solid var(--border);
+      padding: 9px 16px; border-radius: 8px;
+      font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; white-space: nowrap;
+    }
+    .export-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .export-pop {
+      position: absolute; right: 0; top: calc(100% + 6px);
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14); padding: 6px; min-width: 200px;
+      z-index: 120; display: none;
+    }
+    .export-pop.open { display: block; }
+    .export-pop button {
+      display: block; width: 100%; text-align: left; border: none; background: transparent;
+      padding: 9px 12px; border-radius: 7px;
+      font-size: 13px; font-weight: 600; color: var(--text);
+      font-family: inherit; cursor: pointer;
+    }
+    .export-pop button:hover { background: var(--bg); color: var(--primary); }
 
     /* Filter chips */
     .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -260,12 +289,22 @@
       <div class="stat"><div class="label">Menu Items</div><div class="value orange" id="statProducts">—</div></div>
     </div>
 
-    <div class="tabs">
-      <button class="tab active" data-tab="orders">Orders</button>
-      <button class="tab" data-tab="products">Products</button>
-      <button class="tab" data-tab="offers">Offers</button>
-      <button class="tab" data-tab="accounting">Accounting</button>
-      <button class="tab" data-tab="settings">Shop Settings</button>
+    <div class="tabsbar">
+      <div class="tabs" style="margin-bottom:0">
+        <button class="tab active" data-tab="orders">Orders</button>
+        <button class="tab" data-tab="products">Products</button>
+        <button class="tab" data-tab="offers">Offers</button>
+        <button class="tab" data-tab="accounting">Accounting</button>
+        <button class="tab" data-tab="settings">Shop Settings</button>
+      </div>
+      <div class="export-wrap" id="exportWrap">
+        <button class="export-btn" id="exportBtn">⬇ Export ▾</button>
+        <div class="export-pop" id="exportPop">
+          <button data-fmt="csv">📄 CSV (.csv)</button>
+          <button data-fmt="xlsx">📊 Excel (.xlsx)</button>
+          <button data-fmt="ods">📑 OpenDocument (.ods)</button>
+        </div>
+      </div>
     </div>
 
     <section class="panel active" id="panel-orders">
@@ -397,6 +436,10 @@
     let allOrders = [];
     let allProducts = [];
     let statusFilter = '';
+    // Latest loaded data for the Offers/Accounting tabs, kept so the Export
+    // control can snapshot exactly what the vendor is looking at.
+    let lastOffers = [];
+    let lastAccounting = null;
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const inr = n => '₹' + Number(n).toLocaleString('en-IN');
@@ -705,6 +748,7 @@
         const res = await fetch('/api/vendor-settings?offers=1&token=' + encodeURIComponent(token));
         if (res.status === 401) return authFail();
         const offers = await res.json();
+        lastOffers = Array.isArray(offers) ? offers : [];
         const el = document.getElementById('offersList');
         if (!offers.length) {
           el.innerHTML = '<div class="state">No offers yet — create one above to attract customers!</div>';
@@ -815,6 +859,7 @@
         const res = await fetch('/api/vendor-orders?accounting=1&days=' + accDays + '&token=' + encodeURIComponent(token));
         if (res.status === 401) return authFail();
         const { summary, ledger } = await res.json();
+        lastAccounting = { summary, ledger: ledger || [] };
         const d = summary.delivered, ip = summary.in_progress, cx = summary.cancelled;
 
         const card = (label, value, color) =>
@@ -942,6 +987,107 @@
       document.getElementById('statProducts').textContent = allProducts.length;
     }
 
+    /* ---------- Export (CSV / Excel / ODS) ---------- */
+    const fmtDateTime = d => d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    const fmtDay = d => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+    const EXPORT_LABELS = { orders: 'Orders', products: 'Products', offers: 'Offers', accounting: 'Accounting' };
+    const shopSlug = (vendor.name || 'shop').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'shop';
+
+    // Returns { filename, sheets: [{ name, rows }] } for the active tab — clean,
+    // human-readable columns. null = nothing to export (e.g. Shop Settings).
+    function exportModel(tab) {
+      switch (tab) {
+        case 'orders': {
+          const list = statusFilter ? allOrders.filter(o => o.status === statusFilter) : allOrders;
+          return { filename: 'orders', sheets: [{ name: 'Orders', rows: list.map(o => ({
+            'Order ID': o.order_id, 'Status': STATUS_LABELS[o.status] || o.status,
+            'Customer': o.customer_name, 'Phone': o.customer_phone, 'Address': o.delivery_address,
+            'Items': (o.items || []).map(i => `${i.name} × ${i.quantity}`).join('; '),
+            'Subtotal': Number(o.subtotal || 0), 'Delivery Fee': Number(o.delivery_fee || 0),
+            'Commission': Number(o.commission_amount || 0), 'Total': Number(o.total),
+            'Payment Method': o.payment_method || '', 'Payment Status': o.payment_status || '',
+            'When': fmtDateTime(o.created_at)
+          })) }] };
+        }
+        case 'products':
+          return { filename: 'products', sheets: [{ name: 'Products', rows: allProducts.map(p => ({
+            'Name': p.name, 'Category': p.category || '', 'Price': Number(p.price),
+            'Stock': p.stock ?? 0, 'Active': p.active === false ? 'No' : 'Yes', 'Description': p.description || ''
+          })) }] };
+        case 'offers':
+          return { filename: 'offers', sheets: [{ name: 'Offers', rows: lastOffers.map(o => ({
+            'Name': o.name, 'Type': o.discount_type, 'Value': Number(o.discount_value),
+            'Max Discount': o.max_discount ? Number(o.max_discount) : '', 'Min Order': Number(o.min_order),
+            'Valid From': fmtDay(o.valid_from), 'Valid To': fmtDay(o.valid_to),
+            'Max Uses': o.max_uses == null ? '' : o.max_uses, 'Used': o.uses_count, 'Active': o.active ? 'Yes' : 'No'
+          })) }] };
+        case 'accounting': {
+          if (!lastAccounting) return null;
+          const s = lastAccounting.summary, d = s.delivered, ip = s.in_progress, cx = s.cancelled;
+          const summaryRows = [
+            { 'Metric': 'Gross Sales (items)', 'Value': Number(d.gross) },
+            { 'Metric': 'Discounts', 'Value': Number(d.discounts || 0) },
+            { 'Metric': 'Delivery Fees', 'Value': Number(d.delivery_fees) },
+            { 'Metric': 'Commission', 'Value': Number(d.commission) },
+            { 'Metric': 'Net Earnings', 'Value': Number(d.net) },
+            { 'Metric': 'Delivered Orders', 'Value': d.orders },
+            { 'Metric': 'COD Collected', 'Value': Number(d.cod_cash) },
+            { 'Metric': 'UPI Online', 'Value': Number(d.upi_online) },
+            { 'Metric': 'In Progress Orders', 'Value': ip.orders },
+            { 'Metric': 'In Progress Value', 'Value': Number(ip.value) },
+            { 'Metric': 'Cancelled Orders', 'Value': cx.orders }
+          ];
+          const ledger = (lastAccounting.ledger || []).map(o => ({
+            'Date': fmtDay(o.created_at), 'Order ID': o.order_id,
+            'Items': Number(o.subtotal), 'Delivery': Number(o.delivery_fee),
+            'Commission': Number(o.commission_amount),
+            'Net': Number(o.subtotal) + Number(o.delivery_fee) - Number(o.commission_amount),
+            'Paid via': `${o.payment_method} · ${o.payment_status}`
+          }));
+          const period = accDays === '' ? 'all-time' : accDays === '0' ? 'today' : 'last-' + accDays + 'd';
+          return { filename: 'accounting-' + period, sheets: [
+            { name: 'Summary', rows: summaryRows },
+            { name: 'Delivered ledger', rows: ledger }
+          ] };
+        }
+        default: return null;
+      }
+    }
+
+    function runExport(fmt) {
+      const tab = document.querySelector('.tab.active').dataset.tab;
+      const model = exportModel(tab);
+      const sheets = model ? model.sheets.filter(s => s.rows.length) : [];
+      if (!sheets.length) { toast('Nothing to export on this tab yet.'); return; }
+      if (typeof XLSX === 'undefined') { toast('Export tool is still loading — try again in a moment.'); return; }
+      const wb = XLSX.utils.book_new();
+      sheets.forEach(s => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s.rows), s.name.slice(0, 31)));
+      const dt = new Date();
+      const stamp = String(dt.getDate()).padStart(2, '0') + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + dt.getFullYear();
+      XLSX.writeFile(wb, `rajkotmarket-${shopSlug}-${model.filename}-${stamp}.${fmt}`);
+      toast('Exported ' + fmt.toUpperCase());
+    }
+
+    const exportBtn = document.getElementById('exportBtn');
+    const exportPop = document.getElementById('exportPop');
+    exportBtn.addEventListener('click', e => { e.stopPropagation(); exportPop.classList.toggle('open'); });
+    document.addEventListener('click', () => exportPop.classList.remove('open'));
+    exportPop.addEventListener('click', e => {
+      const b = e.target.closest('[data-fmt]');
+      if (!b) return;
+      exportPop.classList.remove('open');
+      runExport(b.dataset.fmt);
+    });
+    function updateExportLabel() {
+      const tab = document.querySelector('.tab.active').dataset.tab;
+      if (EXPORT_LABELS[tab]) {
+        document.getElementById('exportWrap').style.display = '';
+        exportBtn.textContent = '⬇ Export ' + EXPORT_LABELS[tab] + ' ▾';
+      } else {
+        document.getElementById('exportWrap').style.display = 'none';
+      }
+    }
+
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -951,10 +1097,12 @@
         if (tab.dataset.tab === 'settings' && !settingsLoaded) loadSettings();
         if (tab.dataset.tab === 'accounting') loadAccounting();
         if (tab.dataset.tab === 'offers') loadOffers();
+        updateExportLabel();
       });
     });
 
     // Auto-refresh orders every 30s so new orders appear without manual reload
+    updateExportLabel();
     loadOrders();
     loadProducts();
     setInterval(loadOrders, 30000);
