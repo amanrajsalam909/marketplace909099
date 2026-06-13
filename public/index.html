@@ -264,6 +264,20 @@
     .offer-pill { font-size: 13px; color: #065f46; padding: 3px 0; }
     .offers-note { font-size: 11px; color: #047857; margin-top: 6px; }
 
+    /* Shop policies strip */
+    .policy-box {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 4px 16px; margin: -6px 0 18px;
+    }
+    .policy-row { display: flex; gap: 12px; padding: 10px 0; font-size: 13px; }
+    .policy-row + .policy-row { border-top: 1px solid #f1f5f9; }
+    .policy-label { font-weight: 700; color: var(--dark); white-space: nowrap; min-width: 132px; }
+    .policy-text { color: var(--muted); white-space: pre-wrap; }
+    @media (max-width: 560px) {
+      .policy-row { flex-direction: column; gap: 3px; }
+      .policy-label { min-width: 0; }
+    }
+
     /* Product cards */
     .products-grid {
       display: grid;
@@ -621,7 +635,19 @@
            </div>`
         : '';
 
-      content.innerHTML = offersHtml + ratingHtml + '<div class="products-grid">' + list.map(p => {
+      // Shop policies (return / cancellation / delivery) — set by admin, public-safe
+      const pol = (state.currentVendor && state.currentVendor.policies) || {};
+      const polItems = [
+        ['↩️ Return &amp; Refund', pol.return],
+        ['🚫 Cancellation', pol.cancellation],
+        ['🚚 Delivery', pol.delivery]
+      ].filter(([, v]) => v && String(v).trim());
+      const policyHtml = polItems.length
+        ? '<div class="policy-box">' + polItems.map(([label, text]) =>
+            `<div class="policy-row"><span class="policy-label">${label}</span><span class="policy-text">${esc(text)}</span></div>`).join('') + '</div>'
+        : '';
+
+      content.innerHTML = offersHtml + ratingHtml + policyHtml + '<div class="products-grid">' + list.map(p => {
         const out = typeof p.stock === 'number' && p.stock <= 0;
         const low = !out && typeof p.stock === 'number' && p.stock <= 5;
         return `

@@ -15,12 +15,17 @@ module.exports = async (req, res) => {
       if (action === 'vendors') {
         const { data, error } = await supabase
           .from('vendors')
-          .select('id, name, slug, description, logo_url, banner_url, address, phone, is_active, category_id, delivery_fee, min_order, accepts_cod, upi_id, is_open, categories(name, icon)')
+          .select('id, name, slug, description, logo_url, banner_url, address, phone, is_active, category_id, delivery_fee, min_order, accepts_cod, upi_id, is_open, compliance, categories(name, icon)')
           .eq('is_active', true)
           .order('name');
 
         if (error) throw error;
-        return res.json(data);
+        // Expose ONLY the shop policies publicly — never the KYC/bank record.
+        const out = (data || []).map(({ compliance, ...v }) => ({
+          ...v,
+          policies: (compliance && compliance.policies) || {}
+        }));
+        return res.json(out);
       }
 
       if (action === 'offers') {
