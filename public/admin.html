@@ -228,6 +228,28 @@
     html { -webkit-text-size-adjust: 100%; }
     @media (max-width: 600px) {
       input, select, textarea { font-size: 16px; }
+      /* Stacked-card tables: each row becomes a card, each cell a labelled line */
+      table.cards thead { display: none; }
+      table.cards, table.cards tbody, table.cards tr, table.cards td { display: block; width: 100%; }
+      table.cards tr {
+        border: 1px solid var(--border); border-radius: 12px;
+        background: var(--card); box-shadow: var(--shadow);
+        padding: 4px 14px; margin-bottom: 12px;
+      }
+      table.cards td {
+        display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+        padding: 9px 0 !important; border: none !important;
+        border-bottom: 1px solid #f1f5f9 !important;
+        white-space: normal !important; text-align: left !important;
+      }
+      table.cards td:last-child { border-bottom: none !important; }
+      table.cards td::before {
+        content: attr(data-label);
+        font-size: 11px; font-weight: 700; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.4px;
+      }
+      table.cards td.empty { align-items: center; padding: 16px 0 !important; }
+      table.cards td.empty::before { content: none; }
     }
   </style>
 </head>
@@ -937,17 +959,17 @@
             <span style="font-size:12px;font-weight:600;color:var(--muted)">${grp.orders.length} order${grp.orders.length > 1 ? 's' : ''} · ${inr(value)}${pending ? ` · <b style="color:var(--amber)">${pending} pending</b>` : ''}</span>
           </h3>
           <div class="table-wrap">
-            <table>
+            <table class="cards">
               <thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th><th>When</th></tr></thead>
               <tbody>
                 ${grp.orders.map(o => `
                   <tr>
-                    <td><b>${esc(o.order_id)}</b></td>
-                    <td>${esc(o.customer_name)}<br><span style="color:var(--muted);font-size:11px">${esc(o.customer_phone)}</span></td>
-                    <td><b>${inr(o.total)}</b></td>
-                    <td>${esc(o.payment_method)}<br><span style="color:var(--muted);font-size:11px">${esc(o.payment_status || '')}</span></td>
-                    <td><span class="pill ${esc(o.status)}">${esc(o.status)}</span></td>
-                    <td>${o.created_at ? new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}</td>
+                    <td data-label="Order"><b>${esc(o.order_id)}</b></td>
+                    <td data-label="Customer">${esc(o.customer_name)}<br><span style="color:var(--muted);font-size:11px">${esc(o.customer_phone)}</span></td>
+                    <td data-label="Total"><b>${inr(o.total)}</b></td>
+                    <td data-label="Payment">${esc(o.payment_method)}<br><span style="color:var(--muted);font-size:11px">${esc(o.payment_status || '')}</span></td>
+                    <td data-label="Status"><span class="pill ${esc(o.status)}">${esc(o.status)}</span></td>
+                    <td data-label="When">${o.created_at ? new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}</td>
                   </tr>`).join('')}
               </tbody>
             </table>
@@ -1049,19 +1071,19 @@
             <h3>Per-shop settlement summary</h3>
             <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Commission = what each shop owes the marketplace for this period. Payout = what the shop keeps (items + delivery − commission).</p>
             <div class="table-wrap">
-              <table>
+              <table class="cards">
                 <thead><tr><th>Shop</th><th>Orders</th><th>Items Value</th><th>Delivery</th><th>Rate</th><th>Commission Due</th><th>Shop Keeps</th></tr></thead>
                 <tbody>
                   ${(a.by_vendor || []).filter(v => v.orders > 0 || accDays === '').map(v => `
                     <tr>
-                      <td><b>${esc(v.name)}</b></td>
-                      <td>${v.orders}</td>
-                      <td>${inr(v.gross)}</td>
-                      <td>${inr(v.delivery_fees)}</td>
-                      <td>${Number(v.commission_percent)}%</td>
-                      <td><b style="color:var(--green)">${inr(v.commission)}</b></td>
-                      <td>${inr(v.payout)}</td>
-                    </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No delivered orders in this period.</td></tr>'}
+                      <td data-label="Shop"><b>${esc(v.name)}</b></td>
+                      <td data-label="Orders">${v.orders}</td>
+                      <td data-label="Items Value">${inr(v.gross)}</td>
+                      <td data-label="Delivery">${inr(v.delivery_fees)}</td>
+                      <td data-label="Rate">${Number(v.commission_percent)}%</td>
+                      <td data-label="Commission Due"><b style="color:var(--green)">${inr(v.commission)}</b></td>
+                      <td data-label="Shop Keeps">${inr(v.payout)}</td>
+                    </tr>`).join('') || '<tr><td class="empty" colspan="7" style="text-align:center;color:var(--muted);padding:20px">No delivered orders in this period.</td></tr>'}
                 </tbody>
               </table>
             </div>
