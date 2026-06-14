@@ -713,6 +713,19 @@
       const p = state.products.find(x => String(x.id) === String(productId));
       if (!p || !state.currentVendor) return;
 
+      // One vendor per order: if the cart already holds items from another shop,
+      // ask before discarding them and starting a fresh cart with this shop.
+      const otherVendor = state.cart.find(i => i.vendor_id !== state.currentVendor.id);
+      if (otherVendor) {
+        const ok = confirm(
+          'Your cart has items from "' + (otherVendor.vendor_name || 'another shop') + '".\n\n' +
+          'You can order from only one shop at a time. Start a new cart with "' +
+          state.currentVendor.name + '"?'
+        );
+        if (!ok) return;
+        state.cart = [];
+      }
+
       const existing = state.cart.find(i => String(i.id) === String(p.id) && i.vendor_id === state.currentVendor.id);
       if (existing) existing.quantity++;
       else state.cart.push({
