@@ -10,6 +10,10 @@ const supabase = require('../lib/supabase');
 const edgeCache = (res, sMaxage, swr) =>
   res.setHeader('Cache-Control', `public, s-maxage=${sMaxage}, stale-while-revalidate=${swr}`);
 
+// Vendor ids are UUIDs. Validate before interpolating into a PostgREST filter
+// string (.or()) — otherwise a crafted value could alter the query.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -48,6 +52,7 @@ module.exports = async (req, res) => {
           .order('discount_value', { ascending: false });
 
         if (req.query.vendorId) {
+          if (!UUID_RE.test(req.query.vendorId)) return res.status(400).json({ error: 'Invalid vendorId' });
           query = query.or(`vendor_id.eq.${req.query.vendorId},vendor_id.is.null`);
         }
 
