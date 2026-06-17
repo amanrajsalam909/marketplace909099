@@ -4,7 +4,9 @@
   "description": "Multi-vendor food marketplace for Rajkot",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "algos": "node lib/algorithms/index.js",
+    "algos:sort": "node lib/algorithms/ultra_special_sort.js"
   },
   "keywords": ["marketplace", "food", "rajkot"],
   "author": "Aman Raj Salam",
