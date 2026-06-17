@@ -3,6 +3,7 @@ const supabase = require('../lib/supabase');
 const crypto = require('crypto');
 const { verifyPassword, hashPassword } = require('../lib/password');
 const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
+const { newSessionToken, findSession, deleteSession, getToken } = require('../lib/sessions');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -51,12 +52,12 @@ module.exports = async (req, res) => {
       }
       await clearFailures(throttleId);
 
-      const sessionToken = crypto.randomBytes(32).toString('hex');
+      const { token: sessionToken, stored } = newSessionToken();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
       const { error: sessionError } = await supabase
         .from('vendor_sessions')
-        .insert({ token: sessionToken, vendor_id: vendor.id, expires_at: expiresAt });
+        .insert({ token: stored, vendor_id: vendor.id, expires_at: expiresAt });
 
       if (sessionError) throw sessionError;
 
@@ -64,15 +65,11 @@ module.exports = async (req, res) => {
     }
 
     if (action === 'validate') {
-      if (!token) return res.status(401).json({ error: 'Unauthorized' });
+      const authToken = getToken(req);
+      if (!authToken) return res.status(401).json({ error: 'Unauthorized' });
 
-      const { data, error } = await supabase
-        .from('vendor_sessions')
-        .select('vendor_id, expires_at')
-        .eq('token', token)
-        .single();
-
-      if (error || !data) return res.status(401).json({ error: 'Unauthorized' });
+      const data = await findSession('vendor_sessions', authToken, 'vendor_id, expires_at');
+      if (!data) return res.status(401).json({ error: 'Unauthorized' });
       if (new Date(data.expires_at) < new Date()) return res.status(401).json({ error: 'Session expired' });
 
       const { data: vendor } = await supabase
@@ -85,9 +82,10 @@ module.exports = async (req, res) => {
     }
 
     if (action === 'logout') {
-      if (!token) return res.status(400).json({ error: 'Token required' });
+      const authToken = getToken(req);
+      if (!authToken) return res.status(400).json({ error: 'Token required' });
 
-      await supabase.from('vendor_sessions').delete().eq('token', token);
+      await deleteSession('vendor_sessions', authToken);
       return res.json({ success: true });
     }
 

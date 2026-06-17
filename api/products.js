@@ -1,5 +1,6 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
+const { findSession, getToken } = require('../lib/sessions');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -28,7 +29,7 @@ module.exports = async (req, res) => {
 
     if (req.method === 'POST') {
       const { token, product } = req.body;
-      const session = await validateVendorSession(token);
+      const session = await validateVendorSession(getToken(req));
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
       const p = {
@@ -88,7 +89,7 @@ module.exports = async (req, res) => {
 
     if (req.method === 'DELETE') {
       const { token, productId } = req.body;
-      const session = await validateVendorSession(token);
+      const session = await validateVendorSession(getToken(req));
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
       const { data: product } = await supabase
@@ -122,11 +123,7 @@ function isDupCode(error) {
 
 async function validateVendorSession(token) {
   if (!token) return null;
-  const { data } = await supabase
-    .from('vendor_sessions')
-    .select('vendor_id, expires_at')
-    .eq('token', token)
-    .single();
+  const data = await findSession('vendor_sessions', token, 'vendor_id, expires_at');
   if (!data) return null;
   if (new Date(data.expires_at) < new Date()) return null;
   return data;

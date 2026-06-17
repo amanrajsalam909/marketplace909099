@@ -500,18 +500,21 @@
       }).finally(authFail);
     }
 
-    async function api(path, opts) {
-      const res = await fetch(path, opts);
+    async function api(path, opts = {}) {
+      // Auth travels in the Authorization header, never in the URL (keeps the
+      // token out of logs / history). The server also still accepts ?token= .
+      const headers = { ...(opts.headers || {}), Authorization: 'Bearer ' + token };
+      const res = await fetch(path, { ...opts, headers });
       if (res.status === 401) { authFail(); throw new Error('Session expired'); }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Request failed');
       return data;
     }
-    const apiGet = action => api(`/api/admin?action=${action}&token=${encodeURIComponent(token)}`);
+    const apiGet = action => api(`/api/admin?action=${action}`);
     const apiPost = body => api('/api/admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, token })
+      body: JSON.stringify(body)
     });
     // Reviews & complaints are served by /api/feedback, not /api/admin.
     const fbPost = body => api('/api/feedback', {
@@ -1211,7 +1214,7 @@
     /* ---------- Reviews & Complaints ---------- */
     async function loadReviews() {
       try {
-        const list = await api(`/api/feedback?reviews=1&token=${encodeURIComponent(token)}`);
+        const list = await api(`/api/feedback?reviews=1`);
         lastReviews = list;
         const el = document.getElementById('reviewsList');
         if (!list.length) { el.innerHTML = '<div class="state">No reviews yet.</div>'; return; }
@@ -1250,7 +1253,7 @@
 
     async function loadComplaints() {
       try {
-        const list = await api(`/api/feedback?complaints=1&token=${encodeURIComponent(token)}`);
+        const list = await api(`/api/feedback?complaints=1`);
         lastComplaints = list;
         const el = document.getElementById('complaintsList');
         if (!list.length) { el.innerHTML = '<div class="state">No complaints. 🎉</div>'; return; }
@@ -1313,7 +1316,7 @@
     };
     async function loadReturns() {
       try {
-        const list = await api(`/api/feedback?returns=1&token=${encodeURIComponent(token)}`);
+        const list = await api(`/api/feedback?returns=1`);
         lastReturns = list;
         const el = document.getElementById('returnsList');
         if (!list.length) { el.innerHTML = '<div class="state">No return requests. 🎉</div>'; return; }

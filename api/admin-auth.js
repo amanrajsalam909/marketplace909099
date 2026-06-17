@@ -3,6 +3,7 @@ const supabase = require('../lib/supabase');
 const crypto = require('crypto');
 const { verifyPassword, hashPassword } = require('../lib/password');
 const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
+const { newSessionToken, findSession, deleteSession, getToken } = require('../lib/sessions');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -40,12 +41,12 @@ module.exports = async (req, res) => {
       }
       await clearFailures(throttleId);
 
-      const sessionToken = crypto.randomBytes(32).toString('hex');
+      const { token: sessionToken, stored } = newSessionToken();
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
       const { error: sessionError } = await supabase
         .from('admin_sessions')
-        .insert({ token: sessionToken, admin_id: admin.id, expires_at: expiresAt });
+        .insert({ token: stored, admin_id: admin.id, expires_at: expiresAt });
       if (sessionError) throw sessionError;
 
       await supabase.from('admin_users').update({ last_login: new Date().toISOString() }).eq('id', admin.id);
@@ -54,13 +55,13 @@ module.exports = async (req, res) => {
     }
 
     if (action === 'validate') {
-      const session = await validateAdminSession(token);
+      const session = await validateAdminSession(getToken(req));
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
       return res.json({ valid: true });
     }
 
     if (action === 'change-password') {
-      const session = await validateAdminSession(token);
+      const session = await validateAdminSession(getToken(req));
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
       if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
@@ -74,7 +75,7 @@ module.exports = async (req, res) => {
     }
 
     if (action === 'logout') {
-      if (token) await supabase.from('admin_sessions').delete().eq('token', token);
+      await deleteSession('admin_sessions', getToken(req));
       return res.json({ success: true });
     }
 
@@ -86,11 +87,7 @@ module.exports = async (req, res) => {
 
 async function validateAdminSession(token) {
   if (!token) return null;
-  const { data } = await supabase
-    .from('admin_sessions')
-    .select('admin_id, expires_at')
-    .eq('token', token)
-    .single();
+  const data = await findSession('admin_sessions', token, 'admin_id, expires_at');
   if (!data) return null;
   if (new Date(data.expires_at) < new Date()) return null;
   return data;

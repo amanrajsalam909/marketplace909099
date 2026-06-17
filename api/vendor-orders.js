@@ -2,6 +2,7 @@ const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 const { sendStatusUpdate, sendDeliveryOtp } = require('../lib/email');
 const crypto = require('crypto');
+const { findSession, getToken } = require('../lib/sessions');
 
 const STALE_PENDING_MS = 60 * 60 * 1000;   // unconfirmed for 1h → auto-cancel
 const DELIVERY_OTP_TTL_MS = 60 * 60 * 1000;
@@ -61,7 +62,7 @@ module.exports = async (req, res) => {
   if (!guard(req, res)) return;
 
   try {
-    const token = req.query.token || (req.body || {}).token;
+    const token = getToken(req);
     const session = await validateVendorSession(token);
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -232,11 +233,7 @@ function period(days) {
 
 async function validateVendorSession(token) {
   if (!token) return null;
-  const { data } = await supabase
-    .from('vendor_sessions')
-    .select('vendor_id, expires_at')
-    .eq('token', token)
-    .single();
+  const data = await findSession('vendor_sessions', token, 'vendor_id, expires_at');
   if (!data) return null;
   if (new Date(data.expires_at) < new Date()) return null;
   return data;

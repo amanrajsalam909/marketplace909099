@@ -1,6 +1,7 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 const crypto = require('crypto');
+const { findSession, getToken } = require('../lib/sessions');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -10,7 +11,7 @@ module.exports = async (req, res) => {
   if (!guard(req, res)) return;
 
   try {
-    const token = req.query.token || (req.body || {}).token;
+    const token = getToken(req);
     const session = await validateAdminSession(token);
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -312,11 +313,7 @@ function period(days) {
 
 async function validateAdminSession(token) {
   if (!token) return null;
-  const { data } = await supabase
-    .from('admin_sessions')
-    .select('admin_id, expires_at')
-    .eq('token', token)
-    .single();
+  const data = await findSession('admin_sessions', token, 'admin_id, expires_at');
   if (!data) return null;
   if (new Date(data.expires_at) < new Date()) return null;
   return data;

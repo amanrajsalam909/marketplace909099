@@ -259,8 +259,8 @@
       };
 
       try {
-        const res = await fetch('/api/orders?deliveryOtp=' + encodeURIComponent(orderId)
-          + (cust ? '&token=' + encodeURIComponent(cust.token) : ''));
+        const res = await fetch('/api/orders?deliveryOtp=' + encodeURIComponent(orderId),
+          cust ? { headers: { Authorization: 'Bearer ' + cust.token } } : undefined);
         const d = await res.json();
 
         if (d.available && d.otp) {

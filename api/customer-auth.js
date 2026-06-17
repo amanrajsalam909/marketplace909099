@@ -2,6 +2,7 @@ const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 const { sendLoginOtp } = require('../lib/email');
 const crypto = require('crypto');
+const { newSessionToken, findSession, deleteSession, getToken, hashToken } = require('../lib/sessions');
 
 const OTP_EXPIRY_MS = 15 * 60 * 1000;
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
@@ -39,7 +40,8 @@ module.exports = async (req, res) => {
   if (!guard(req, res)) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { action, phone, email, otp, token } = req.body || {};
+  const { action, phone, email, otp } = req.body || {};
+  const token = getToken(req); // Authorization header → ?token= → body.token
 
   try {
     if (action === 'send-otp') {
@@ -98,9 +100,9 @@ module.exports = async (req, res) => {
       const { data: customer } = await supabase
         .from('customers').select('name').eq('phone', nPhone).single();
 
-      const sessionToken = crypto.randomBytes(32).toString('hex');
+      const { token: sessionToken, stored } = newSessionToken();
       await supabase.from('customer_sessions').insert({
-        token: sessionToken, phone: nPhone, email: row.email,
+        token: stored, phone: nPhone, email: row.email,
         name: customer?.name || null,
         expires_at: new Date(Date.now() + SESSION_EXPIRY_MS).toISOString()
       });
@@ -118,7 +120,8 @@ module.exports = async (req, res) => {
       if (!session) return res.status(401).json({ error: 'Session expired — please sign in again.' });
       const name = String(req.body.name || '').trim().slice(0, 60);
       if (!name) return res.status(400).json({ error: 'Please enter your name.' });
-      await supabase.from('customer_sessions').update({ name }).eq('token', token);
+      await supabase.from('customer_sessions').update({ name }).eq('token', hashToken(token));
+      await supabase.from('customer_sessions').update({ name }).eq('token', token); // legacy raw
       await supabase.from('customers').update({ name }).eq('phone', session.phone);
       return res.json({ success: true, name });
     }
@@ -168,7 +171,7 @@ module.exports = async (req, res) => {
     }
 
     if (action === 'logout') {
-      if (token) await supabase.from('customer_sessions').delete().eq('token', token);
+      await deleteSession('customer_sessions', token);
       return res.json({ success: true });
     }
 
@@ -180,11 +183,7 @@ module.exports = async (req, res) => {
 
 async function validateCustomerSession(token) {
   if (!token) return null;
-  const { data } = await supabase
-    .from('customer_sessions')
-    .select('phone, email, name, expires_at')
-    .eq('token', token)
-    .single();
+  const data = await findSession('customer_sessions', token, 'phone, email, name, expires_at');
   if (!data) return null;
   if (new Date(data.expires_at) < new Date()) return null;
   return data;

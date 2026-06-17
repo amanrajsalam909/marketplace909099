@@ -2,6 +2,7 @@ const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 const { sendOrderConfirmation, sendVendorNotification, sendStatusUpdate } = require('../lib/email');
 const { validateCustomerSession } = require('./customer-auth');
+const { getToken } = require('../lib/sessions');
 const crypto = require('crypto');
 
 const CUSTOMER_CANCEL_WINDOW_MS = 10 * 60 * 1000;
@@ -21,7 +22,7 @@ module.exports = async (req, res) => {
     if (req.method === 'GET') {
       // Logged-in customer: list my orders
       if (req.query.myOrders) {
-        const session = await validateCustomerSession(req.query.token);
+        const session = await validateCustomerSession(getToken(req));
         if (!session) return res.status(401).json({ error: 'Not logged in.' });
 
         const { data } = await supabase
@@ -45,7 +46,7 @@ module.exports = async (req, res) => {
           .single();
         if (!ord || ord.status !== 'ready') return res.json({ available: false });
 
-        const session = await validateCustomerSession(req.query.token);
+        const session = await validateCustomerSession(getToken(req));
         if (!session) return res.json({ authRequired: true });
         if (session.phone !== ord.customer_phone) return res.json({ notOwner: true });
 
@@ -134,7 +135,7 @@ module.exports = async (req, res) => {
 
       // Customer self-cancellation: own order, still pending, within 10 minutes
       if (action === 'cancel') {
-        const session = await validateCustomerSession(req.body.token);
+        const session = await validateCustomerSession(getToken(req));
         if (!session) return res.status(401).json({ error: 'Please sign in to cancel an order.' });
 
         const { orderId } = req.body;

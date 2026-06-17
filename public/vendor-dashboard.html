@@ -550,7 +550,7 @@
     /* ---------- Orders ---------- */
     async function loadOrders() {
       try {
-        const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token));
+        const res = await fetch('/api/vendor-orders', { headers: { Authorization: 'Bearer ' + token } });
         if (res.status === 401) return authFail();
         allOrders = await res.json();
         if (!Array.isArray(allOrders)) allOrders = [];
@@ -705,8 +705,8 @@
       const next = STATUS_FLOW[STATUS_FLOW.indexOf(fromStatus) + 1];
       if (!next) return;
       try {
-        const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const res = await fetch('/api/vendor-orders', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
           body: JSON.stringify({ action: 'update-status', orderId, newStatus: next })
         });
         const data = await res.json();
@@ -719,8 +719,8 @@
     async function doRevert(orderId, fromStatus) {
       const prev = REVERT_MAP[fromStatus];
       try {
-        const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const res = await fetch('/api/vendor-orders', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
           body: JSON.stringify({ action: 'revert-status', orderId })
         });
         const data = await res.json();
@@ -732,8 +732,8 @@
 
     async function doCancel(orderId, reason) {
       try {
-        const res = await fetch('/api/vendor-orders?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const res = await fetch('/api/vendor-orders', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
           body: JSON.stringify({ token, action: 'cancel', orderId, reason })
         });
         const data = await res.json();
@@ -819,7 +819,7 @@
       document.getElementById('detailModal').classList.add('open');
 
       try {
-        const res = await fetch('/api/vendor-orders?events=' + encodeURIComponent(orderId) + '&token=' + encodeURIComponent(token));
+        const res = await fetch('/api/vendor-orders?events=' + encodeURIComponent(orderId), { headers: { Authorization: 'Bearer ' + token } });
         const evs = res.ok ? await res.json() : [];
         const tl = document.getElementById('dmTimeline');
         if (!tl) return;
@@ -1023,7 +1023,7 @@
 
     async function loadOffers() {
       try {
-        const res = await fetch('/api/vendor-settings?offers=1&token=' + encodeURIComponent(token));
+        const res = await fetch('/api/vendor-settings?offers=1', { headers: { Authorization: 'Bearer ' + token } });
         if (res.status === 401) return authFail();
         const offers = await res.json();
         lastOffers = Array.isArray(offers) ? offers : [];
@@ -1134,7 +1134,7 @@
       const body = document.getElementById('accBody');
       body.innerHTML = '<div class="state">Loading accounts…</div>';
       try {
-        const res = await fetch('/api/vendor-orders?accounting=1&days=' + accDays + '&token=' + encodeURIComponent(token));
+        const res = await fetch('/api/vendor-orders?accounting=1&days=' + accDays, { headers: { Authorization: 'Bearer ' + token } });
         if (res.status === 401) return authFail();
         const { summary, ledger } = await res.json();
         lastAccounting = { summary, ledger: ledger || [] };
@@ -1198,7 +1198,7 @@
     let settingsLoaded = false;
     async function loadSettings() {
       try {
-        const res = await fetch('/api/vendor-settings?token=' + encodeURIComponent(token));
+        const res = await fetch('/api/vendor-settings', { headers: { Authorization: 'Bearer ' + token } });
         if (res.status === 401) return authFail();
         const s = await res.json();
         document.getElementById('sOpen').checked = s.is_open !== false;
@@ -1373,7 +1373,7 @@
       const el = document.getElementById('returnsBody');
       el.innerHTML = '<div class="state">Loading returns…</div>';
       try {
-        const res = await fetch('/api/feedback?vendorReturns=1&token=' + encodeURIComponent(token));
+        const res = await fetch('/api/feedback?vendorReturns=1', { headers: { Authorization: 'Bearer ' + token } });
         if (res.status === 401) { logout(); return; }
         if (!res.ok) throw new Error('Could not load returns.');
         const list = await res.json();

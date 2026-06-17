@@ -403,10 +403,11 @@
     async function loadOrders() {
       const el = document.getElementById('ordersList');
       try {
+        const authH = { headers: { Authorization: 'Bearer ' + cust.token } };
         const [oRes, cRes, rRes] = await Promise.all([
-          fetch('/api/orders?myOrders=1&token=' + encodeURIComponent(cust.token)),
-          fetch('/api/feedback?myComplaints=1&token=' + encodeURIComponent(cust.token)),
-          fetch('/api/feedback?myReturns=1&token=' + encodeURIComponent(cust.token))
+          fetch('/api/orders?myOrders=1', authH),
+          fetch('/api/feedback?myComplaints=1', authH),
+          fetch('/api/feedback?myReturns=1', authH)
         ]);
         if (oRes.status === 401) return doSignOut(false);
         const orders = await oRes.json();
@@ -469,8 +470,8 @@
       const slot = document.getElementById('otp-' + orderId);
       if (!slot) return;
       try {
-        const res = await fetch('/api/orders?deliveryOtp=' + encodeURIComponent(orderId)
-          + '&token=' + encodeURIComponent(cust.token));
+        const res = await fetch('/api/orders?deliveryOtp=' + encodeURIComponent(orderId),
+          { headers: { Authorization: 'Bearer ' + cust.token } });
         const d = await res.json();
         if (!d.available || !d.otp) return; // expired / not ready — show nothing
         slot.innerHTML = `

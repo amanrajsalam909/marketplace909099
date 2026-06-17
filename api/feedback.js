@@ -2,6 +2,7 @@ const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 const { sendComplaintAlert, sendComplaintResolution, sendReturnUpdate } = require('../lib/email');
 const { validateCustomerSession } = require('./customer-auth');
+const { findSession, getToken } = require('../lib/sessions');
 
 const RETURN_WINDOW_DAYS = 3;
 const RETURN_STATUSES = ['Requested', 'Approved', 'Rejected', 'Picked up', 'Refunded'];
@@ -34,7 +35,7 @@ module.exports = async (req, res) => {
 
       // Logged-in customer: their own complaints (status + resolution)
       if (req.query.myComplaints) {
-        const cs = await validateCustomerSession(req.query.token);
+        const cs = await validateCustomerSession(getToken(req));
         if (!cs) return res.status(401).json({ error: 'Not logged in.' });
         const { data } = await supabase
           .from('complaints')
@@ -46,7 +47,7 @@ module.exports = async (req, res) => {
 
       // Logged-in customer: their own return requests
       if (req.query.myReturns) {
-        const cs = await validateCustomerSession(req.query.token);
+        const cs = await validateCustomerSession(getToken(req));
         if (!cs) return res.status(401).json({ error: 'Not logged in.' });
         const { data } = await supabase
           .from('return_requests')
@@ -58,7 +59,7 @@ module.exports = async (req, res) => {
 
       // Logged-in vendor: returns for their own orders (read-only)
       if (req.query.vendorReturns) {
-        const vs = await validateVendorSession(req.query.token);
+        const vs = await validateVendorSession(getToken(req));
         if (!vs) return res.status(401).json({ error: 'Not logged in.' });
         const { data } = await supabase
           .from('return_requests')
@@ -69,7 +70,7 @@ module.exports = async (req, res) => {
       }
 
       // Admin: all reviews or all complaints
-      const session = await validateAdminSession(req.query.token);
+      const session = await validateAdminSession(getToken(req));
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
       if (req.query.reviews) {
@@ -189,7 +190,7 @@ module.exports = async (req, res) => {
       }
 
       // ----- Admin moderation -----
-      const session = await validateAdminSession(req.body.token);
+      const session = await validateAdminSession(getToken(req));
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
       if (action === 'set-review-approval') {
@@ -276,8 +277,7 @@ async function ownOrder(orderId, phone) {
 
 async function validateVendorSession(token) {
   if (!token) return null;
-  const { data } = await supabase
-    .from('vendor_sessions').select('vendor_id, expires_at').eq('token', token).single();
+  const data = await findSession('vendor_sessions', token, 'vendor_id, expires_at');
   if (!data) return null;
   if (new Date(data.expires_at) < new Date()) return null;
   return data;
@@ -285,11 +285,7 @@ async function validateVendorSession(token) {
 
 async function validateAdminSession(token) {
   if (!token) return null;
-  const { data } = await supabase
-    .from('admin_sessions')
-    .select('admin_id, expires_at')
-    .eq('token', token)
-    .single();
+  const data = await findSession('admin_sessions', token, 'admin_id, expires_at');
   if (!data) return null;
   if (new Date(data.expires_at) < new Date()) return null;
   return data;

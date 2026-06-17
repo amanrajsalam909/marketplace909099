@@ -1,5 +1,6 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
+const { findSession, getToken } = require('../lib/sessions');
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -11,7 +12,7 @@ module.exports = async (req, res) => {
   if (!guard(req, res)) return;
 
   try {
-    const token = req.query.token || (req.body || {}).token;
+    const token = getToken(req);
     const session = await validateVendorSession(token);
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -161,11 +162,7 @@ function validateOffer(o) {
 
 async function validateVendorSession(token) {
   if (!token) return null;
-  const { data } = await supabase
-    .from('vendor_sessions')
-    .select('vendor_id, expires_at')
-    .eq('token', token)
-    .single();
+  const data = await findSession('vendor_sessions', token, 'vendor_id, expires_at');
   if (!data) return null;
   if (new Date(data.expires_at) < new Date()) return null;
   return data;
