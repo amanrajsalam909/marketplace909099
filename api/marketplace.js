@@ -1,6 +1,15 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 
+// Edge-cache read-only GETs on Vercel's CDN. s-maxage = how long a response is
+// served fresh from the edge (no function/DB hit); stale-while-revalidate = how
+// long a stale copy is served while the function refreshes in the background.
+// Turns the ~0.7-1.7s function+Supabase round trip into a ~tens-of-ms CDN hit
+// for the vast majority of visitors. Safe here: all of these are read-only and
+// the data changes rarely (and checkout re-validates stock atomically anyway).
+const edgeCache = (res, sMaxage, swr) =>
+  res.setHeader('Cache-Control', `public, s-maxage=${sMaxage}, stale-while-revalidate=${swr}`);
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -13,18 +22,18 @@ module.exports = async (req, res) => {
       const { action } = req.query;
 
       if (action === 'vendors') {
+        // Pull ONLY the public policies sub-object (compliance->policies), never
+        // the full compliance blob — keeps KYC/bank data out of the function and
+        // off the wire entirely.
         const { data, error } = await supabase
           .from('vendors')
-          .select('id, name, slug, description, logo_url, banner_url, address, phone, is_active, category_id, delivery_fee, min_order, accepts_cod, upi_id, is_open, compliance, categories(name, icon)')
+          .select('id, name, slug, description, logo_url, banner_url, address, phone, is_active, category_id, delivery_fee, min_order, accepts_cod, upi_id, is_open, categories(name, icon), policies:compliance->policies')
           .eq('is_active', true)
           .order('name');
 
         if (error) throw error;
-        // Expose ONLY the shop policies publicly — never the KYC/bank record.
-        const out = (data || []).map(({ compliance, ...v }) => ({
-          ...v,
-          policies: (compliance && compliance.policies) || {}
-        }));
+        const out = (data || []).map(v => ({ ...v, policies: v.policies || {} }));
+        edgeCache(res, 120, 600);
         return res.json(out);
       }
 
@@ -45,6 +54,7 @@ module.exports = async (req, res) => {
         const { data, error } = await query;
         if (error) throw error;
         // usage-cap filter (column-to-column compare isn't supported in the query API)
+        edgeCache(res, 60, 300);
         return res.json((data || []).filter(o => o.max_uses === null || o.uses_count < o.max_uses));
       }
 
@@ -56,6 +66,7 @@ module.exports = async (req, res) => {
           .order('sort_order');
 
         if (error) throw error;
+        edgeCache(res, 300, 3600);
         return res.json(data);
       }
 
@@ -73,6 +84,9 @@ module.exports = async (req, res) => {
 
         const { data, error } = await query.order('category').order('name');
         if (error) throw error;
+        // Shorter TTL — stock changes with orders. The listing can be slightly
+        // stale; checkout re-checks stock atomically.
+        edgeCache(res, 30, 120);
         return res.json(data);
       }
 
