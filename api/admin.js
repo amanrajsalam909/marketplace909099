@@ -8,6 +8,14 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  // Maintenance cron (external scheduler), authenticated by CRON_SECRET rather
+  // than an admin session. Folded in here so it doesn't add a 13th Serverless
+  // Function (Hobby plan allows only 12). Intercepted before guard/session.
+  if (((req.query && req.query.action) || (req.body && req.body.action)) === 'cleanup') {
+    return require('../lib/cleanup')(req, res);
+  }
+
   if (!guard(req, res)) return;
 
   try {
