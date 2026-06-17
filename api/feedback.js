@@ -19,13 +19,16 @@ module.exports = async (req, res) => {
 
   try {
     if (req.method === 'GET') {
-      // Public: approved reviews + average for one shop
+      // Public: approved reviews + average for one shop.
+      // Scoped to PRODUCT reviews (product_id set) so the shop's overall ★ is
+      // the average of its product reviews; legacy order-level rows are ignored.
       if (req.query.reviews && req.query.vendorId) {
         const { data } = await supabase
           .from('reviews')
           .select('customer_name, rating, comment, created_at')
           .eq('vendor_id', req.query.vendorId)
           .eq('approved', true)
+          .not('product_id', 'is', null)
           .order('created_at', { ascending: false })
           .limit(20);
         const list = data || [];
