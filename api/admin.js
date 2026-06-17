@@ -103,6 +103,15 @@ module.exports = async (req, res) => {
     if (req.method === 'POST') {
       const { action } = req.body;
 
+      // ---------- On-demand Google Drive backup ----------
+      // Saves a JSON snapshot of a dataset to Drive. Read-only; never edits the
+      // DB (unlike the nightly ?action=cleanup archive). Logic in lib/backup.js
+      // to avoid adding a 13th Serverless Function (Hobby cap is 12).
+      if (action === 'backup') {
+        const result = await require('../lib/backup')(String(req.body.dataset || ''));
+        return res.json({ success: true, ...result });
+      }
+
       // ---------- Vendors ----------
       if (action === 'create-vendor') {
         const { vendor, password } = req.body;

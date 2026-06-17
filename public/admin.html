@@ -424,6 +424,18 @@
           <button type="submit" class="btn btn-primary" style="margin-top:14px">Update Password</button>
         </form>
       </div>
+      <div class="card">
+        <h3>☁️ Back up to Google Drive</h3>
+        <p style="font-size:13px;color:var(--muted);margin:-6px 0 12px">Save a full JSON snapshot to your Google Drive on demand. (Delivered orders older than 15 days are archived automatically — use this for an instant manual backup of everything else too.)</p>
+        <div id="backupBtns" style="display:flex;gap:10px;flex-wrap:wrap">
+          <button type="button" class="btn btn-outline" data-backup="orders">📦 Orders</button>
+          <button type="button" class="btn btn-outline" data-backup="accounts">👤 Accounts</button>
+          <button type="button" class="btn btn-outline" data-backup="returns">↩️ Returns</button>
+          <button type="button" class="btn btn-outline" data-backup="complaints">💬 Complaints</button>
+          <button type="button" class="btn btn-primary" data-backup="all">☁️ Back up all</button>
+        </div>
+        <div id="backupStatus" style="font-size:13px;color:var(--muted);margin-top:12px"></div>
+      </div>
     </section>
   </main>
 
@@ -1390,6 +1402,35 @@
         toast('Password updated');
         e.target.reset();
       } catch (err) { toast(err.message); }
+    });
+
+    /* ---------- Google Drive backup ---------- */
+    document.getElementById('backupBtns').addEventListener('click', async e => {
+      const btn = e.target.closest('button[data-backup]');
+      if (!btn) return;
+      const sel = btn.dataset.backup;
+      const datasets = sel === 'all' ? ['orders', 'accounts', 'returns', 'complaints'] : [sel];
+      const btns = document.querySelectorAll('#backupBtns button');
+      const status = document.getElementById('backupStatus');
+      btns.forEach(b => b.disabled = true);
+      status.style.color = 'var(--muted)';
+      status.textContent = 'Saving to Google Drive…';
+      const lines = [];
+      try {
+        for (const ds of datasets) {
+          const r = await apiPost({ action: 'backup', dataset: ds });
+          const name = r.drive_file && r.drive_file.name ? r.drive_file.name : 'saved';
+          lines.push(`✓ ${r.label}: ${r.count} record(s) → ${name}`);
+          status.innerHTML = lines.join('<br>');
+        }
+        toast('Backup saved to Google Drive');
+      } catch (err) {
+        status.style.color = 'var(--danger, #c0392b)';
+        status.innerHTML = (lines.length ? lines.join('<br>') + '<br>' : '') + '✗ ' + err.message;
+        toast(err.message);
+      } finally {
+        btns.forEach(b => b.disabled = false);
+      }
     });
 
     /* ---------- Export (CSV / Excel / ODS) ---------- */
