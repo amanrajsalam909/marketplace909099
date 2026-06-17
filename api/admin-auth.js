@@ -1,6 +1,8 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 const crypto = require('crypto');
+const { verifyPassword, hashPassword } = require('../lib/password');
+const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -15,16 +17,28 @@ module.exports = async (req, res) => {
     if (action === 'login') {
       if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
+      const throttleId = 'admin:' + String(email).trim().toLowerCase();
+      const block = await checkBlocked(throttleId);
+      if (block.blocked) {
+        return res.status(429).json({ error: `Too many attempts. Please try again in ${Math.ceil(block.retryAfter / 60)} minute(s).` });
+      }
+
       const { data: admin } = await supabase
         .from('admin_users')
         .select('id, email, password_hash, is_active')
         .eq('email', email)
         .single();
 
-      if (!admin || !admin.is_active) return res.status(401).json({ error: 'Invalid credentials' });
+      if (!admin || !admin.is_active) { await recordFailure(throttleId); return res.status(401).json({ error: 'Invalid credentials' }); }
 
-      const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
-      if (admin.password_hash !== passwordHash) return res.status(401).json({ error: 'Invalid credentials' });
+      const { ok, needsRehash } = await verifyPassword(password, admin.password_hash);
+      if (!ok) { await recordFailure(throttleId); return res.status(401).json({ error: 'Invalid credentials' }); }
+
+      if (needsRehash) {
+        const newHash = await hashPassword(password);
+        await supabase.from('admin_users').update({ password_hash: newHash }).eq('id', admin.id);
+      }
+      await clearFailures(throttleId);
 
       const sessionToken = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -50,7 +64,7 @@ module.exports = async (req, res) => {
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
       if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
-      const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+      const passwordHash = await hashPassword(password);
       const { error } = await supabase
         .from('admin_users')
         .update({ password_hash: passwordHash })

@@ -8,11 +8,16 @@
     "algos": "node lib/algorithms/index.js",
     "algos:sort": "node lib/algorithms/ultra_special_sort.js"
   },
-  "keywords": ["marketplace", "food", "rajkot"],
+  "keywords": [
+    "marketplace",
+    "food",
+    "rajkot"
+  ],
   "author": "Aman Raj Salam",
   "license": "ISC",
   "dependencies": {
     "@supabase/supabase-js": "^2.106.1",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "nodemailer": "^8.0.7",
     "resend": "^6.12.3"

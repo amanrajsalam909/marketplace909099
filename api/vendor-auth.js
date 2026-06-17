@@ -1,6 +1,8 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 const crypto = require('crypto');
+const { verifyPassword, hashPassword } = require('../lib/password');
+const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -15,13 +17,19 @@ module.exports = async (req, res) => {
     if (action === 'login') {
       if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
+      const throttleId = 'vendor:' + String(email).trim().toLowerCase();
+      const block = await checkBlocked(throttleId);
+      if (block.blocked) {
+        return res.status(429).json({ error: `Too many attempts. Please try again in ${Math.ceil(block.retryAfter / 60)} minute(s).` });
+      }
+
       const { data: vendor, error: vendorError } = await supabase
         .from('vendors')
         .select('id, name, email')
         .eq('email', email)
         .single();
 
-      if (vendorError || !vendor) return res.status(401).json({ error: 'Invalid credentials' });
+      if (vendorError || !vendor) { await recordFailure(throttleId); return res.status(401).json({ error: 'Invalid credentials' }); }
 
       const { data: user, error: userError } = await supabase
         .from('vendor_users')
@@ -30,10 +38,18 @@ module.exports = async (req, res) => {
         .eq('email', email)
         .single();
 
-      if (userError || !user) return res.status(401).json({ error: 'Invalid credentials' });
+      if (userError || !user) { await recordFailure(throttleId); return res.status(401).json({ error: 'Invalid credentials' }); }
 
-      const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
-      if (user.password_hash !== passwordHash) return res.status(401).json({ error: 'Invalid credentials' });
+      const { ok, needsRehash } = await verifyPassword(password, user.password_hash);
+      if (!ok) { await recordFailure(throttleId); return res.status(401).json({ error: 'Invalid credentials' }); }
+
+      // Silent upgrade of a legacy sha256 hash to bcrypt — invisible to the user.
+      if (needsRehash) {
+        const newHash = await hashPassword(password);
+        await supabase.from('vendor_users').update({ password_hash: newHash })
+          .eq('vendor_id', vendor.id).eq('email', email);
+      }
+      await clearFailures(throttleId);
 
       const sessionToken = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
