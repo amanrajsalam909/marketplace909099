@@ -1234,7 +1234,7 @@
           <div class="list-row">
             <div class="row-info">
               <div class="row-title">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)} — ${esc(r.customer_name)}</div>
-              <div class="row-sub">${esc((r.vendors || {}).name || '')} · ${esc(r.order_id)} · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
+              <div class="row-sub">${r.product_name ? '🛍️ ' + esc(r.product_name) + ' · ' : ''}${esc((r.vendors || {}).name || '')} · ${esc(r.order_id)} · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
               ${r.comment ? `<div style="font-size:13px;color:var(--text);margin-top:6px">"${esc(r.comment)}"</div>` : ''}
             </div>
             <span class="badge ${r.approved ? 'on' : 'off'}">${r.approved ? 'LIVE' : 'PENDING'}</span>

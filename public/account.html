@@ -279,6 +279,7 @@
 
   <script>
     let cust = JSON.parse(localStorage.getItem('custSession') || 'null');
+    let ordersById = {};   // order_id -> order (so the review modal can list its items)
     if (!cust) location.href = '/';
 
     const ADDR_LABELS = ['Home', 'Office', 'Other'];
@@ -411,6 +412,8 @@
         ]);
         if (oRes.status === 401) return doSignOut(false);
         const orders = await oRes.json();
+        ordersById = {};
+        orders.forEach(o => { ordersById[o.order_id] = o; });
         const complaints = cRes.ok ? await cRes.json() : [];
         const returns = rRes.ok ? await rRes.json() : [];
         const compByOrder = {};
@@ -530,37 +533,58 @@
     document.getElementById('fbModalBg').addEventListener('click', e => { if (e.target.id === 'fbModalBg') closeFbModal(); });
     function fbErr(msg) { const el = document.getElementById('fbErrBox'); if (el) { el.textContent = msg; el.style.display = 'block'; } }
 
-    let revRating = 0;
+    // Per-product reviews: each item in the delivered order gets its own stars.
+    // revRatings maps a product_id -> chosen star value (0 = not rated).
+    let revRatings = {};
     function openReview(orderId) {
-      revRating = 0;
-      openFbModal('Rate your order', `
-        <div id="fbErrBox" style="${FBERR}"></div>
-        <div style="text-align:center;margin-bottom:6px">
-          <div id="starRow" style="font-size:36px;letter-spacing:8px;cursor:pointer;user-select:none">
+      const ord = ordersById[orderId];
+      const items = ord && Array.isArray(ord.items_json) ? ord.items_json : [];
+      if (!items.length) { toast('No items found to review for this order.'); return; }
+      revRatings = {};
+
+      const block = (it, i) => `
+        <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px">
+          <div style="font-weight:700;margin-bottom:6px">${esc(it.name)}${it.quantity ? ` <span style="color:var(--muted);font-weight:500">× ${it.quantity}</span>` : ''}</div>
+          <div class="starRow" data-pid="${esc(it.id)}" style="font-size:30px;letter-spacing:6px;cursor:pointer;user-select:none;margin-bottom:8px">
             ${[1, 2, 3, 4, 5].map(n => `<span data-star="${n}" style="color:#cbd5e1">★</span>`).join('')}
           </div>
-        </div>
-        <textarea id="revComment" rows="3" placeholder="Tell others about your experience (optional)" style="${FBFIELD}"></textarea>
-        <button id="revSubmit" style="${FBBTN}">Submit review</button>`);
-      const row = document.getElementById('starRow');
-      const paint = n => row.querySelectorAll('[data-star]').forEach(s => s.style.color = (+s.dataset.star <= n) ? '#f59e0b' : '#cbd5e1');
-      row.addEventListener('mouseover', e => { const s = e.target.closest('[data-star]'); if (s) paint(+s.dataset.star); });
-      row.addEventListener('mouseout', () => paint(revRating));
-      row.addEventListener('click', e => { const s = e.target.closest('[data-star]'); if (s) { revRating = +s.dataset.star; paint(revRating); } });
+          <textarea data-comment="${esc(it.id)}" rows="2" placeholder="Your review of this item (optional)" style="${FBFIELD};margin-bottom:0"></textarea>
+        </div>`;
+
+      openFbModal('Rate your items', `
+        <div id="fbErrBox" style="${FBERR}"></div>
+        <p style="font-size:12px;color:var(--muted);margin:-2px 0 12px">Tap the stars for each item. You can rate just the ones you want.</p>
+        ${items.map(block).join('')}
+        <button id="revSubmit" style="${FBBTN}">Submit reviews</button>`);
+
+      document.getElementById('fbBody').querySelectorAll('.starRow').forEach(row => {
+        const pid = row.dataset.pid;
+        const paint = n => row.querySelectorAll('[data-star]').forEach(s => s.style.color = (+s.dataset.star <= n) ? '#f59e0b' : '#cbd5e1');
+        row.addEventListener('mouseover', e => { const s = e.target.closest('[data-star]'); if (s) paint(+s.dataset.star); });
+        row.addEventListener('mouseout', () => paint(revRatings[pid] || 0));
+        row.addEventListener('click', e => { const s = e.target.closest('[data-star]'); if (s) { revRatings[pid] = +s.dataset.star; paint(revRatings[pid]); } });
+      });
       document.getElementById('revSubmit').addEventListener('click', () => submitReview(orderId));
     }
     async function submitReview(orderId) {
-      if (!revRating) return fbErr('Please tap a star rating.');
+      const items = Object.keys(revRatings)
+        .filter(pid => revRatings[pid] > 0)
+        .map(pid => {
+          const c = document.querySelector(`[data-comment="${CSS.escape(pid)}"]`);
+          return { productId: pid, rating: revRatings[pid], comment: c ? c.value : '' };
+        });
+      if (!items.length) return fbErr('Please tap a star rating for at least one item.');
       const btn = document.getElementById('revSubmit'); btn.disabled = true; btn.textContent = 'Submitting…';
       try {
         const res = await fetch('/api/feedback', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'submit-review', orderId, phone: cust.phone, rating: revRating, comment: document.getElementById('revComment').value })
+          body: JSON.stringify({ action: 'submit-review', orderId, phone: cust.phone, items })
         });
         const d = await res.json();
         if (!d.success) throw new Error(d.error || 'Could not submit the review.');
-        closeFbModal(); toast('Thanks! Your review is awaiting approval. ⭐');
-      } catch (e) { fbErr(e.message); btn.disabled = false; btn.textContent = 'Submit review'; }
+        closeFbModal();
+        toast(d.skipped ? `Thanks! ${d.saved} saved · ${d.skipped} already reviewed ⭐` : 'Thanks! Your ratings are live ⭐');
+      } catch (e) { fbErr(e.message); btn.disabled = false; btn.textContent = 'Submit reviews'; }
     }
 
     function openComplaint(orderId) {

@@ -33,6 +33,38 @@ module.exports = async (req, res) => {
         return res.json({ avg, count: list.length, reviews: list });
       }
 
+      // Public: approved reviews + average for ONE product
+      if (req.query.reviews && req.query.productId) {
+        const { data } = await supabase
+          .from('reviews')
+          .select('customer_name, rating, comment, created_at')
+          .eq('product_id', req.query.productId)
+          .eq('approved', true)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        const list = data || [];
+        const avg = list.length ? Math.round(list.reduce((s, r) => s + r.rating, 0) / list.length * 10) / 10 : 0;
+        return res.json({ avg, count: list.length, reviews: list });
+      }
+
+      // Public: bulk per-product rating summary for the storefront grid.
+      // ?productRatings=1 [&vendorId=]  ->  { [productId]: { avg, count } }
+      // Left uncached so a freshly submitted rating shows on the next reload.
+      if (req.query.productRatings) {
+        let q = supabase.from('product_ratings').select('product_id, avg_rating, review_count');
+        if (req.query.vendorId) {
+          const { data: prods } = await supabase
+            .from('products').select('id').eq('vendor_id', req.query.vendorId);
+          const ids = (prods || []).map(p => p.id);
+          if (!ids.length) return res.json({});
+          q = q.in('product_id', ids);
+        }
+        const { data } = await q;
+        const map = {};
+        for (const r of (data || [])) map[r.product_id] = { avg: Number(r.avg_rating), count: r.review_count };
+        return res.json(map);
+      }
+
       // Logged-in customer: their own complaints (status + resolution)
       if (req.query.myComplaints) {
         const cs = await validateCustomerSession(getToken(req));
@@ -94,28 +126,58 @@ module.exports = async (req, res) => {
     if (req.method === 'POST') {
       const { action } = req.body || {};
 
+      // Per-product reviews: a delivered order's items are each rated. Accepts
+      // the new shape { orderId, phone, items: [{productId, rating, comment}] }
+      // and still tolerates the old single { rating, comment, productId }.
       if (action === 'submit-review') {
-        const { orderId, phone, rating, comment } = req.body;
+        const { orderId, phone } = req.body;
         const ord = await ownOrder(orderId, phone);
         if (!ord) return res.status(404).json({ error: 'Order not found.' });
         if (ord.status !== 'delivered') return res.status(400).json({ error: 'You can review an order once it has been delivered.' });
 
-        const r = parseInt(rating, 10);
-        if (!r || r < 1 || r > 5) return res.status(400).json({ error: 'Please select a star rating.' });
-
-        const { error } = await supabase.from('reviews').insert({
-          order_id: orderId,
-          vendor_id: ord.vendor_id,
-          customer_name: ord.customer_name,
-          rating: r,
-          comment: String(comment || '').trim().slice(0, 1000),
-          approved: false
-        });
-        if (error) {
-          if (error.code === '23505') return res.status(400).json({ error: 'You have already reviewed this order.' });
-          throw error;
+        let items = Array.isArray(req.body.items) ? req.body.items : null;
+        if (!items && req.body.rating != null && req.body.productId) {
+          items = [{ productId: req.body.productId, rating: req.body.rating, comment: req.body.comment }];
         }
-        return res.json({ success: true });
+        if (!items || !items.length) return res.status(400).json({ error: 'Please rate at least one product.' });
+
+        // Only products that were actually in this order may be reviewed.
+        const { data: orderItems } = await supabase
+          .from('order_items').select('product_id, product_name').eq('order_id', orderId);
+        const nameById = {};
+        for (const it of (orderItems || [])) nameById[it.product_id] = it.product_name;
+
+        const rows = [];
+        for (const it of items) {
+          const pid = it.productId;
+          const r = parseInt(it.rating, 10);
+          if (!pid || !(pid in nameById)) continue;   // not part of this order
+          if (!r || r < 1 || r > 5) continue;          // no/invalid rating → skip this item
+          rows.push({
+            order_id: orderId,
+            vendor_id: ord.vendor_id,
+            product_id: pid,
+            product_name: nameById[pid],
+            customer_name: ord.customer_name,
+            rating: r,
+            comment: String(it.comment || '').trim().slice(0, 1000),
+            approved: true   // per-product reviews show instantly (delivered+phone is the proof)
+          });
+        }
+        if (!rows.length) return res.status(400).json({ error: 'Please select a star rating for at least one product.' });
+
+        // Insert per-row so an already-reviewed product (unique violation on
+        // order_id+product_id) is skipped without aborting the others.
+        let saved = 0, skipped = 0;
+        for (const row of rows) {
+          const { error } = await supabase.from('reviews').insert(row);
+          if (error) {
+            if (error.code === '23505') { skipped++; continue; }
+            throw error;
+          }
+          saved++;
+        }
+        return res.json({ success: true, saved, skipped });
       }
 
       if (action === 'submit-complaint') {

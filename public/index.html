@@ -505,6 +505,7 @@
       products: [],
       allProducts: [],
       allProductsLoaded: false,
+      ratings: {},            // { [productId]: { avg, count } } — per-product star ratings
       currentVendor: null,
       cart: JSON.parse(localStorage.getItem('cart') || '[]'),
       search: ''
@@ -517,6 +518,19 @@
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const inr = n => '₹' + Number(n).toLocaleString('en-IN');
+    // Per-product star-rating badge (shows nothing until a product has reviews).
+    function ratingBadge(productId) {
+      const r = state.ratings[productId];
+      if (!r || !r.count) return '';
+      return `<div class="product-rating" style="font-size:12px;color:#f59e0b;font-weight:700;margin-top:2px">★ ${r.avg} <span style="color:var(--muted);font-weight:500">(${r.count})</span></div>`;
+    }
+    // Fetch per-product ratings (optionally for one shop) and merge into state.
+    async function loadRatings(vendorId) {
+      try {
+        const res = await fetch('/api/feedback?productRatings=1' + (vendorId ? '&vendorId=' + encodeURIComponent(vendorId) : ''));
+        if (res.ok) Object.assign(state.ratings, await res.json());
+      } catch (_) { /* ratings are non-critical */ }
+    }
 
     const BANNERS = [
       'linear-gradient(120deg,#fb923c,#ea580c)',
@@ -571,6 +585,7 @@
       try {
         const res = await fetch('/api/marketplace?action=products');
         state.allProducts = res.ok ? await res.json() : [];
+        await loadRatings();   // all products' ratings, for the cross-shop search grid
       } catch (e) {
         state.allProducts = [];
       }
@@ -665,6 +680,7 @@
           <div class="product-body">
             <div class="product-category">${esc(p.category || 'General')}${p.product_no ? ' · #' + esc(p.product_no) : ''}</div>
             <div class="product-name">${esc(p.name)}</div>
+            ${ratingBadge(p.id)}
             <div class="product-desc">🏬 ${esc(v.name)}${out ? ' · <span style="color:#dc2626;font-weight:600">Out of stock</span>' : ''}</div>
             <div class="product-footer">
               <div class="product-price">${inr(p.price)}</div>
@@ -691,7 +707,8 @@
       try {
         const [pRes, rRes] = await Promise.all([
           fetch('/api/marketplace?action=products&vendorId=' + encodeURIComponent(vendorId)),
-          fetch('/api/feedback?reviews=1&vendorId=' + encodeURIComponent(vendorId))
+          fetch('/api/feedback?reviews=1&vendorId=' + encodeURIComponent(vendorId)),
+          loadRatings(vendorId)   // per-product ratings for this shop's items
         ]);
         state.products = await pRes.json();
         state.shopRating = rRes.ok ? await rRes.json() : { count: 0 };
@@ -746,6 +763,7 @@
           <div class="product-body">
             <div class="product-category">${esc(p.category || 'General')}${p.product_no ? ' · #' + esc(p.product_no) : ''}</div>
             <div class="product-name">${esc(p.name)}</div>
+            ${ratingBadge(p.id)}
             <div class="product-desc">${esc(p.description || '')}${low ? ' <span style="color:#d97706;font-weight:600">Only ' + p.stock + ' left!</span>' : ''}</div>
             <div class="product-footer">
               <div class="product-price">${inr(p.price)}</div>
