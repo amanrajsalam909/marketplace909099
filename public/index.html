@@ -507,6 +507,8 @@
       offers: [],
       categoryFilter: '',
       products: [],
+      allProducts: [],
+      allProductsLoaded: false,
       currentVendor: null,
       cart: JSON.parse(localStorage.getItem('cart') || '[]'),
       search: ''
@@ -567,6 +569,18 @@
       }
     }
 
+    // Lazily fetch every shop's products once, so the home search can match products too.
+    async function ensureAllProducts() {
+      if (state.allProductsLoaded) return;
+      try {
+        const res = await fetch('/api/marketplace?action=products');
+        state.allProducts = res.ok ? await res.json() : [];
+      } catch (e) {
+        state.allProducts = [];
+      }
+      state.allProductsLoaded = true;
+    }
+
     function renderCategoryMenu() {
       const wrap = document.getElementById('catMenuList');
       // Only categories that actually have a live (available) shop in them
@@ -600,6 +614,19 @@
         (!q || v.name.toLowerCase().includes(q) || (v.description || '').toLowerCase().includes(q))
       );
 
+      // Match products across all shops too (only while searching). Respect the category filter.
+      const vendorById = {};
+      state.vendors
+        .filter(v => !state.categoryFilter || v.category_id === state.categoryFilter)
+        .forEach(v => { vendorById[v.id] = v; });
+      const productMatches = q
+        ? state.allProducts.filter(p => vendorById[p.vendor_id] && (
+            p.name.toLowerCase().includes(q) ||
+            (p.category || '').toLowerCase().includes(q) ||
+            (p.product_no || '').toLowerCase().includes(q)
+          ))
+        : [];
+
       const catName = state.categoryFilter
         ? (state.categories.find(c => c.id === state.categoryFilter) || {}).name
         : null;
@@ -607,14 +634,17 @@
       document.querySelector('.section-head').style.display = 'none';
       backBtn.style.display = 'none';
 
-      if (!list.length) {
-        content.innerHTML = '<div class="state">No shops found' + (q ? ' for "' + esc(q) + '"' : (catName ? ' in ' + esc(catName) + ' yet — check back soon!' : ' yet — check back soon!')) + '</div>';
+      if (!list.length && !productMatches.length) {
+        content.innerHTML = '<div class="state">No shops or products found' + (q ? ' for "' + esc(q) + '"' : (catName ? ' in ' + esc(catName) + ' yet — check back soon!' : ' yet — check back soon!')) + '</div>';
         return;
       }
 
-      content.innerHTML = '<div class="vendors-grid">' + list.map(v => {
-        const offer = offersFor(v.id)[0];
-        return `
+      const head = txt => `<div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:8px 2px 12px">${txt}</div>`;
+
+      const shopsHtml = list.length
+        ? (q ? head('Shops') : '') + '<div class="vendors-grid">' + list.map(v => {
+            const offer = offersFor(v.id)[0];
+            return `
         <div class="vendor-card" data-vendor="${v.id}">
           <div class="vendor-banner" style="background:${bannerFor(v.name)}">
             <div class="vendor-avatar">${v.logo_url ? `<img src="${esc(v.logo_url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:9px">` : esc(v.name[0])}</div>
@@ -626,7 +656,30 @@
             ${offer ? `<div class="offer-tag">🎉 ${esc(offerTag(offer))}</div>` : ''}
           </div>
         </div>`;
-      }).join('') + '</div>';
+          }).join('') + '</div>'
+        : '';
+
+      const productsHtml = productMatches.length
+        ? head('Products') + '<div class="products-grid">' + productMatches.map(p => {
+            const v = vendorById[p.vendor_id];
+            const out = typeof p.stock === 'number' && p.stock <= 0;
+            return `
+        <div class="product-card" data-vendor="${p.vendor_id}" style="cursor:pointer${out ? ';opacity:0.6' : ''}">
+          <div class="product-image">${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}">` : '🛍️'}</div>
+          <div class="product-body">
+            <div class="product-category">${esc(p.category || 'General')}${p.product_no ? ' · #' + esc(p.product_no) : ''}</div>
+            <div class="product-name">${esc(p.name)}</div>
+            <div class="product-desc">🏬 ${esc(v.name)}${out ? ' · <span style="color:#dc2626;font-weight:600">Out of stock</span>' : ''}</div>
+            <div class="product-footer">
+              <div class="product-price">${inr(p.price)}</div>
+              <span class="add-btn" style="background:transparent;color:var(--primary);border:1px solid var(--primary)">View in shop →</span>
+            </div>
+          </div>
+        </div>`;
+          }).join('') + '</div>'
+        : '';
+
+      content.innerHTML = shopsHtml + productsHtml;
     }
 
     async function openVendor(vendorId) {
@@ -756,9 +809,12 @@
       renderVendors();
     });
 
-    searchInput.addEventListener('input', () => {
+    searchInput.addEventListener('input', async () => {
       state.search = searchInput.value.trim();
-      state.currentVendor ? renderProducts() : renderVendors();
+      if (state.currentVendor) return renderProducts();
+      if (state.search) await ensureAllProducts();
+      // Ignore a stale fetch if the user cleared/changed the box meanwhile.
+      if (!state.currentVendor) renderVendors();
     });
 
     /* ---------- Customer account (email OTP) ---------- */
