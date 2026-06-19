@@ -1619,6 +1619,10 @@
               <input type="checkbox" data-exch="${p.id}" ${p.exchangeable ? 'checked' : ''}>
               🔁 Exchangeable
             </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap" title="Innerwear, cosmetics, customised, clearance — no return or exchange">
+              <input type="checkbox" data-final="${p.id}" ${p.final_sale ? 'checked' : ''}>
+              🚫 Final sale
+            </label>
           </div>
         </div>`).join('');
     }
@@ -1634,7 +1638,8 @@
     document.getElementById('productsList').addEventListener('change', async e => {
       const qcCb = e.target.closest('[data-qc]');
       const exCb = e.target.closest('[data-exch]');
-      const cb = qcCb || exCb;
+      const fsCb = e.target.closest('[data-final]');
+      const cb = qcCb || exCb || fsCb;
       if (!cb) return;
       cb.disabled = true;
       try {
@@ -1643,11 +1648,16 @@
           const p = lastProducts.find(x => x.id === qcCb.dataset.qc);
           if (p) p.return_photo_qc = qcCb.checked;
           toast(qcCb.checked ? 'Photo QC required for this item' : 'Photo QC turned off');
-        } else {
+        } else if (exCb) {
           await apiPost({ action: 'set-product-exchangeable', productId: exCb.dataset.exch, on: exCb.checked });
           const p = lastProducts.find(x => x.id === exCb.dataset.exch);
           if (p) p.exchangeable = exCb.checked;
           toast(exCb.checked ? 'Marked exchangeable (fashion)' : 'Exchange turned off for this item');
+        } else {
+          await apiPost({ action: 'set-product-final-sale', productId: fsCb.dataset.final, on: fsCb.checked });
+          const p = lastProducts.find(x => x.id === fsCb.dataset.final);
+          if (p) p.final_sale = fsCb.checked;
+          toast(fsCb.checked ? 'Marked final sale — no return/exchange' : 'Final sale turned off');
         }
       } catch (err) { toast(err.message); cb.checked = !cb.checked; }
       cb.disabled = false;

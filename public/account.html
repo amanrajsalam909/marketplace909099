@@ -453,15 +453,17 @@
       const el = document.getElementById('ordersList');
       try {
         const authH = { headers: { Authorization: 'Bearer ' + cust.token } };
-        const [oRes, cRes, rRes, exRes] = await Promise.all([
+        const [oRes, cRes, rRes, exRes, fsRes] = await Promise.all([
           fetch('/api/orders?myOrders=1', authH),
           fetch('/api/feedback?myComplaints=1', authH),
           fetch('/api/feedback?myReturns=1', authH),
-          fetch('/api/feedback?exchangeableProducts=1')
+          fetch('/api/feedback?exchangeableProducts=1'),
+          fetch('/api/feedback?finalSaleProducts=1')
         ]);
         if (oRes.status === 401) return doSignOut(false);
         const orders = await oRes.json();
         const exchangeable = new Set(exRes.ok ? await exRes.json() : []);
+        const finalSale = new Set(fsRes.ok ? await fsRes.json() : []);
         ordersById = {};
         orders.forEach(o => { ordersById[o.order_id] = o; });
         const complaints = cRes.ok ? await cRes.json() : [];
@@ -481,7 +483,8 @@
           const canCancel = o.status === 'pending' && (Date.now() - new Date(o.created_at).getTime() < 10 * 60 * 1000);
           const comps = compByOrder[o.order_id] || [];
           const ret = returnByOrder[o.order_id];
-          const exEligible = items.some(i => exchangeable.has(i.id));
+          const allFinalSale = items.length > 0 && items.every(i => finalSale.has(i.id));
+          const exEligible = !allFinalSale && items.some(i => exchangeable.has(i.id));
           return `
           <div class="order-card">
             <div class="order-top">
@@ -503,7 +506,7 @@
                 <div class="order-links">
                   <a href="track.html?orderId=${encodeURIComponent(o.order_id)}&phone=${encodeURIComponent(cust.phone)}">Track</a>
                   ${o.status === 'delivered' ? `<a href="#" data-review="${esc(o.order_id)}">Review</a>` : ''}
-                  ${o.status === 'delivered' && !ret ? `<a href="#" data-return="${esc(o.order_id)}">Return</a>` : ''}
+                  ${o.status === 'delivered' && !ret && !allFinalSale ? `<a href="#" data-return="${esc(o.order_id)}">Return</a>` : ''}
                   ${o.status === 'delivered' && !ret && exEligible ? `<a href="#" data-exchange="${esc(o.order_id)}">Exchange</a>` : ''}
                   ${o.status !== 'cancelled' ? `<a href="#" data-complain="${esc(o.order_id)}">Complain</a>` : ''}
                   ${canCancel ? `<a href="#" class="danger" data-cancel="${esc(o.order_id)}">Cancel</a>` : ''}

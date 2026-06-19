@@ -75,6 +75,12 @@ module.exports = async (req, res) => {
         const { data } = await supabase.from('products').select('id').eq('exchangeable', true);
         return res.json((data || []).map(p => p.id));
       }
+      // Public: ids of final-sale products (no return/exchange). The account page
+      // hides Return/Exchange when EVERY item in an order is final-sale.
+      if (req.query.finalSaleProducts) {
+        const { data } = await supabase.from('products').select('id').eq('final_sale', true);
+        return res.json((data || []).map(p => p.id));
+      }
 
       // Public: approved reviews + average for one shop.
       // Scoped to PRODUCT reviews (product_id set) so the shop's overall ★ is
@@ -349,6 +355,21 @@ module.exports = async (req, res) => {
           .eq('order_id', orderId).eq('customer_phone', norm).single();
         if (!ord) return res.status(404).json({ error: 'Order not found.' });
         if (ord.status !== 'delivered') return res.status(400).json({ error: 'You can request a return only after the order is delivered.' });
+
+        // Final-sale guard: block only when EVERY item in the order is final-sale
+        // (mixed orders stay returnable/exchangeable).
+        {
+          const { data: oiAll } = await supabase
+            .from('order_items').select('product_id').eq('order_id', orderId);
+          const allPids = [...new Set((oiAll || []).map(i => i.product_id).filter(Boolean))];
+          if (allPids.length) {
+            const { data: fs } = await supabase
+              .from('products').select('id').in('id', allPids).eq('final_sale', true);
+            if ((fs || []).length === allPids.length) {
+              return res.status(400).json({ error: 'This order is final sale — it cannot be returned or exchanged.' });
+            }
+          }
+        }
 
         // Window starts at delivery — read the delivered event, fall back to updated_at
         const { data: ev } = await supabase
