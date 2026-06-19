@@ -36,6 +36,7 @@ async function flaggedProductsByOrder(orderIds) {
 }
 
 const RETURN_WINDOW_DAYS = 3;
+const EXCHANGE_WINDOW_HOURS = 48;   // fashion-only exchanges, raised within 48h of delivery
 const RETURN_STATUSES = [
   'Requested', 'Approved', 'Rejected', 'Ready', 'Assigned', 'Picked up',
   'QC failed', 'Refunded', 'Exchange scheduled', 'Exchanged'
@@ -68,6 +69,13 @@ module.exports = async (req, res) => {
 
   try {
     if (req.method === 'GET') {
+      // Public: ids of exchange-eligible (fashion) products, so the account page
+      // shows the "Exchange" option only for orders containing one.
+      if (req.query.exchangeableProducts) {
+        const { data } = await supabase.from('products').select('id').eq('exchangeable', true);
+        return res.json((data || []).map(p => p.id));
+      }
+
       // Public: approved reviews + average for one shop.
       // Scoped to PRODUCT reviews (product_id set) so the shop's overall ★ is
       // the average of its product reviews; legacy order-level rows are ignored.
@@ -188,6 +196,15 @@ module.exports = async (req, res) => {
           list.forEach(r => { r.items = byOrder[r.order_id] || []; });
         }
         return res.json(list);
+      }
+
+      // Logged-in vendor: active pickup partners to dispatch an exchange to.
+      if (req.query.activePartners) {
+        const vs = await validateVendorSession(getToken(req));
+        if (!vs) return res.status(401).json({ error: 'Not logged in.' });
+        const { data } = await supabase
+          .from('return_partners').select('id, name').eq('active', true).order('name');
+        return res.json(data || []);
       }
 
       // Admin: all reviews or all complaints
@@ -339,19 +356,39 @@ module.exports = async (req, res) => {
           .eq('order_id', orderId).eq('to_status', 'delivered')
           .order('created_at', { ascending: false }).limit(1).maybeSingle();
         const deliveredAt = ev ? new Date(ev.created_at) : new Date(ord.updated_at);
-        if (Date.now() - deliveredAt.getTime() > RETURN_WINDOW_DAYS * 86400000) {
+        const elapsedMs = Date.now() - deliveredAt.getTime();
+        if (requestType === 'exchange') {
+          if (elapsedMs > EXCHANGE_WINDOW_HOURS * 3600000) {
+            return res.status(400).json({ error: `The ${EXCHANGE_WINDOW_HOURS}-hour exchange window for this order has passed.` });
+          }
+          // Exchange is fashion-only: the order must contain an exchangeable item.
+          const { data: oi } = await supabase
+            .from('order_items').select('product_id').eq('order_id', orderId);
+          const pids = (oi || []).map(i => i.product_id).filter(Boolean);
+          let eligible = false;
+          if (pids.length) {
+            const { data: prods } = await supabase
+              .from('products').select('id').in('id', pids).eq('exchangeable', true);
+            eligible = (prods || []).length > 0;
+          }
+          if (!eligible) return res.status(400).json({ error: 'This order has no items eligible for exchange.' });
+        } else if (elapsedMs > RETURN_WINDOW_DAYS * 86400000) {
           return res.status(400).json({ error: `The ${RETURN_WINDOW_DAYS}-day return window for this order has passed.` });
         }
 
         const { data: existing } = await supabase
           .from('return_requests').select('status').eq('order_id', orderId).maybeSingle();
-        if (existing) return res.status(400).json({ error: 'A return is already in progress for this order.' });
+        if (existing) return res.status(400).json({ error: 'A return or exchange is already in progress for this order.' });
 
         const ret = {
           order_id: orderId, vendor_id: ord.vendor_id, request_type: requestType,
           customer_name: ord.customer_name, email: ord.customer_email, phone: ord.customer_phone,
-          reason: String(reason).trim().slice(0, 600), status: 'Requested',
-          ...(requestType === 'exchange' ? { resolution: 'exchange' } : {})
+          reason: String(reason).trim().slice(0, 600),
+          // Exchanges skip admin: auto-approved, Exchange ID minted now, routed
+          // straight to the vendor to re-prepare.
+          ...(requestType === 'exchange'
+            ? { status: 'Approved', resolution: 'exchange', exchange_id: genExchangeId() }
+            : { status: 'Requested' })
         };
         const { error } = await supabase.from('return_requests').insert(ret);
         if (error) {
@@ -551,20 +588,33 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: 'Unknown action' });
       }
 
-      // ----- Vendor: mark an approved exchange's replacement prepared -----
-      if (action === 'vendor-exchange-ready') {
+      // ----- Vendor: dispatch a prepared exchange to a pickup partner -----
+      // (Admin is out of the exchange loop, so the vendor assigns the partner
+      // after re-preparing. This also generates the customer's pickup code.)
+      if (action === 'vendor-exchange-dispatch') {
         const vs = await validateVendorSession(getToken(req));
         if (!vs) return res.status(401).json({ error: 'Please sign in again.' });
         const { data: ret } = await supabase
           .from('return_requests')
-          .select('id, status, request_type, vendor_id, email, order_id, exchange_id')
+          .select('id, status, request_type, vendor_id, email, order_id')
           .eq('id', req.body.returnId).maybeSingle();
         if (!ret || ret.vendor_id !== vs.vendor_id) return res.status(404).json({ error: 'Exchange not found for your shop.' });
         if (ret.request_type !== 'exchange') return res.status(400).json({ error: 'That request is not an exchange.' });
-        if (ret.status !== 'Approved') return res.status(400).json({ error: 'This exchange is not awaiting preparation.' });
+        if (!['Approved', 'Assigned'].includes(ret.status)) return res.status(400).json({ error: 'This exchange cannot be dispatched right now.' });
+        const { data: partner } = await supabase
+          .from('return_partners').select('id, active').eq('id', req.body.partnerId).maybeSingle();
+        if (!partner || !partner.active) return res.status(400).json({ error: 'Choose an active pickup partner.' });
+
+        const code = String(crypto.randomInt(100000, 1000000));
+        await supabase.from('return_otps').upsert({
+          order_id: ret.order_id, otp: code, attempts: 0,
+          expires_at: new Date(Date.now() + PICKUP_OTP_TTL_MS).toISOString(),
+          created_at: new Date().toISOString()
+        });
         const { data: upd } = await supabase
           .from('return_requests')
-          .update({ status: 'Ready', updated_at: new Date().toISOString() })
+          .update({ assigned_partner_id: req.body.partnerId, assigned_at: new Date().toISOString(),
+                    status: 'Assigned', updated_at: new Date().toISOString() })
           .eq('id', ret.id).select('*').single();
         if (upd && upd.email) sendReturnUpdate(upd.email, upd).catch(() => {});
         return res.json({ success: true });

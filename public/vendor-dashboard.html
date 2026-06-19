@@ -1407,15 +1407,21 @@
       'Assigned': 'background:#ede9fe;color:#5b21b6', 'Picked up': 'background:#e0e7ff;color:#3730a3',
       'Exchanged': 'background:#d1fae5;color:#065f46'
     };
+    let vendorPartners = [];
     async function loadVendorExchanges() {
       const el = document.getElementById('exchangesBody');
       el.innerHTML = '<div class="state">Loading exchanges…</div>';
       try {
-        const res = await fetch('/api/feedback?vendorExchanges=1', { headers: { Authorization: 'Bearer ' + token } });
-        if (res.status === 401) { logout(); return; }
-        if (!res.ok) throw new Error('Could not load exchanges.');
-        const list = await res.json();
+        const [exRes, pRes] = await Promise.all([
+          fetch('/api/feedback?vendorExchanges=1', { headers: { Authorization: 'Bearer ' + token } }),
+          fetch('/api/feedback?activePartners=1', { headers: { Authorization: 'Bearer ' + token } })
+        ]);
+        if (exRes.status === 401) { logout(); return; }
+        if (!exRes.ok) throw new Error('Could not load exchanges.');
+        const list = await exRes.json();
+        vendorPartners = pRes.ok ? await pRes.json() : [];
         if (!Array.isArray(list) || !list.length) { el.innerHTML = '<div class="state">No exchanges to prepare. 🎉</div>'; return; }
+        const partnerOpts = vendorPartners.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
         el.innerHTML = list.map(r => {
           const items = (r.items || []).map(i => `${esc(i.product_name)} × ${i.qty || 1} <span style="color:var(--muted)">(product ${esc(String(i.product_id || '').slice(0, 8))})</span>`).join('<br>');
           return `
@@ -1427,11 +1433,19 @@
             <div style="font-size:11px;color:var(--muted);margin-top:2px">From order ${esc(r.order_id)}</div>
             <div style="font-size:13px;color:var(--text);margin-top:8px"><b>Re-prepare:</b><br>${items || '—'}</div>
             <div style="font-size:13px;color:var(--text);margin-top:8px"><b>Reason:</b> ${esc(r.reason)}</div>
-            ${r.admin_note ? `<div style="font-size:12px;color:var(--text);margin-top:6px;white-space:pre-wrap"><b>Admin note:</b> ${esc(r.admin_note)}</div>` : ''}
             ${r.status === 'Approved'
-              ? `<button class="btn-primary" data-exch-ready="${r.id}" style="margin-top:12px">✅ Replacement ready — out for delivery</button>`
-              : (r.status === 'Ready' ? '<div style="font-size:12px;color:#854d0e;font-weight:600;margin-top:10px">📦 Ready — awaiting pickup partner assignment.</div>'
-                 : (r.status === 'Exchanged' ? '<div style="font-size:12px;color:#059669;font-weight:600;margin-top:10px">✅ Exchanged — replacement handed to the customer.</div>' : ''))}
+              ? `<div style="border-top:1px dashed var(--border);margin-top:12px;padding-top:12px">
+                   <div style="font-size:12px;font-weight:600;color:var(--dark);margin-bottom:6px">Prepared the replacement? Dispatch it for pickup:</div>
+                   ${partnerOpts
+                     ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
+                          <select data-exch-partner="${r.id}" style="flex:1;min-width:150px;padding:9px;border:1px solid var(--border);border-radius:8px"><option value="">— choose pickup partner —</option>${partnerOpts}</select>
+                          <button class="btn-primary" data-exch-dispatch="${r.id}">📦 Dispatch for pickup</button>
+                        </div>`
+                     : '<div style="font-size:12px;color:#dc2626">No pickup partners available yet — ask the marketplace to add one.</div>'}
+                 </div>`
+              : (r.status === 'Assigned' ? '<div style="font-size:12px;color:#5b21b6;font-weight:600;margin-top:10px">🛵 Out for pickup — partner will swap it at the customer\'s door.</div>'
+                 : (r.status === 'Picked up' ? '<div style="font-size:12px;color:#3730a3;font-weight:600;margin-top:10px">🔄 Collected — finalizing the swap.</div>'
+                 : (r.status === 'Exchanged' ? '<div style="font-size:12px;color:#059669;font-weight:600;margin-top:10px">✅ Exchanged — replacement handed to the customer.</div>' : '')))}
           </div>`;
         }).join('');
       } catch (e) {
@@ -1439,18 +1453,21 @@
       }
     }
     document.getElementById('exchangesBody').addEventListener('click', async e => {
-      const btn = e.target.closest('[data-exch-ready]');
+      const btn = e.target.closest('[data-exch-dispatch]');
       if (!btn) return;
-      btn.disabled = true; btn.textContent = 'Saving…';
+      const id = btn.dataset.exchDispatch;
+      const partnerId = (document.querySelector(`[data-exch-partner="${id}"]`) || {}).value || '';
+      if (!partnerId) { alert('Choose a pickup partner first.'); return; }
+      btn.disabled = true; btn.textContent = 'Dispatching…';
       try {
         const res = await fetch('/api/feedback', {
           method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-          body: JSON.stringify({ action: 'vendor-exchange-ready', returnId: btn.dataset.exchReady })
+          body: JSON.stringify({ action: 'vendor-exchange-dispatch', returnId: id, partnerId })
         });
         const d = await res.json();
-        if (!res.ok) throw new Error(d.error || 'Could not update.');
+        if (!res.ok) throw new Error(d.error || 'Could not dispatch.');
         loadVendorExchanges();
-      } catch (err) { btn.disabled = false; btn.textContent = '✅ Replacement ready — out for delivery'; alert(err.message); }
+      } catch (err) { btn.disabled = false; btn.textContent = '📦 Dispatch for pickup'; alert(err.message); }
     });
 
     const exportBtn = document.getElementById('exportBtn');

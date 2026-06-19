@@ -102,7 +102,7 @@ module.exports = async (req, res) => {
       if (action === 'products') {
         const { data, error } = await supabase
           .from('products')
-          .select('id, name, category, price, active, return_photo_qc, vendors(name)')
+          .select('id, name, category, price, active, return_photo_qc, exchangeable, vendors(name)')
           .order('name', { ascending: true });
         if (error) throw error;
         return res.json(data || []);
@@ -119,6 +119,16 @@ module.exports = async (req, res) => {
         const { error } = await supabase
           .from('products')
           .update({ return_photo_qc: req.body.on === true, updated_at: new Date().toISOString() })
+          .eq('id', req.body.productId);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      // ---------- Per-product exchangeable (fashion) flag (admin only) ----------
+      if (action === 'set-product-exchangeable') {
+        const { error } = await supabase
+          .from('products')
+          .update({ exchangeable: req.body.on === true, updated_at: new Date().toISOString() })
           .eq('id', req.body.productId);
         if (error) throw error;
         return res.json({ success: true });

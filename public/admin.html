@@ -434,7 +434,7 @@
     <section class="panel" id="panel-exchanges">
       <div class="card">
         <h3>🔁 Exchanges</h3>
-        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Same-product swaps (size/colour/fit). Approve &amp; assign a pickup partner. The partner inspects at the door and hands over the replacement at the same time — no refund step. Closes as <b>Exchanged</b> with the pickup/exchange time.</p>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Read-only. Fashion-only swaps are handled by the <b>vendor</b> (re-prepares &amp; dispatches) and the <b>pickup partner</b> (swaps at the door). This is just the record — Exchange ID and where it is, up to <b>Exchanged</b>.</p>
         <div id="exchangesList"><div class="state">Loading…</div></div>
       </div>
     </section>
@@ -1460,46 +1460,23 @@
         const [allRows] = await Promise.all([api(`/api/feedback?returns=1`), loadPartners()]);
         lastReturns = allRows;
         const list = allRows.filter(r => r.request_type === 'exchange');
-        const partnerOpts = lastPartners.filter(p => p.active);
         const el = document.getElementById('exchangesList');
-        if (!list.length) { el.innerHTML = '<div class="state">No exchange requests. 🎉</div>'; return; }
+        if (!list.length) { el.innerHTML = '<div class="state">No exchanges. 🎉</div>'; return; }
+        // Read-only: exchanges are handled by the vendor + pickup partner. Admin
+        // only sees the Exchange ID and where it is (up to Exchanged).
         el.innerHTML = list.map(r => {
           const partnerName = (r.return_partners || {}).name || '';
-          const canAssign = ['Ready', 'Assigned'].includes(r.status);
           return `
           <div class="list-row" style="align-items:flex-start">
             <div class="row-info">
               <div class="row-title">${r.exchange_id ? '🔁 ' + esc(r.exchange_id) : esc(r.order_id)}
                 <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${RET_BADGE[r.status] || RET_BADGE['Requested']}">${esc(r.status)}</span>
               </div>
-              <div class="row-sub">order ${esc(r.order_id)} · ${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} (${esc(r.email || '')}) · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
+              <div class="row-sub">order ${esc(r.order_id)} · ${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
               <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
               ${partnerName ? `<div style="font-size:12px;color:var(--text);margin-top:4px">📦 Partner: <b>${esc(partnerName)}</b></div>` : ''}
-              ${r.status === 'Approved' ? '<div style="font-size:12px;color:#854d0e;font-weight:600;margin-top:4px">⏳ Awaiting the vendor to prepare the replacement.</div>' : ''}
-              ${r.qc_status ? `<div style="font-size:12px;margin-top:4px;font-weight:600;color:${r.qc_status === 'passed' ? 'var(--green)' : 'var(--red)'}">🔍 Photo QC: ${r.qc_status}</div>` : ''}
               ${(r.photos || []).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.photos.map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.slot)}"><img src="${esc(p.url)}" style="width:52px;height:52px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`).join('')}</div>` : ''}
-              ${r.status === 'Exchanged' ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:4px">✅ Exchanged${r.picked_up_at ? ' on ' + new Date(r.picked_up_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''} — replacement handed over.</div>` : ''}
-            </div>
-            <div style="flex-basis:100%;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px">
-              ${canAssign ? `
-              <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px">
-                <label style="margin:0 0 5px">Assign pickup partner ${r.status === 'Assigned' ? '(re-assign generates a fresh code)' : '— generates the pickup code'}</label>
-                <div style="display:flex;gap:8px;flex-wrap:wrap">
-                  <select data-ret-partner="${r.id}" style="flex:1;min-width:160px">
-                    <option value="">— choose partner —</option>
-                    ${partnerOpts.map(p => `<option value="${p.id}" ${r.assigned_partner_id === p.id ? 'selected' : ''}>${esc(p.name)} (${esc(p.login_id)})</option>`).join('')}
-                  </select>
-                  <button class="btn btn-primary btn-sm" data-ret-assign="${r.id}">📦 Assign &amp; send code</button>
-                </div>
-              </div>` : ''}
-              <label style="margin-top:4px">Note to customer (optional)</label>
-              <textarea data-ret-note="${r.id}" rows="2" placeholder="Emailed to the customer with this update">${esc(r.admin_note || '')}</textarea>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-                ${r.status === 'Requested' ? `<button class="btn btn-sm" data-ret-approve="${r.id}" style="background:var(--green);color:#fff">✅ Approve</button>
-                <button class="btn btn-sm" data-ret-reject="${r.id}" style="background:#fff;color:var(--red);border:1px solid #fecaca">✖ Reject</button>` : ''}
-                <button class="btn btn-primary btn-sm" data-ret-update="${r.id}">✉️ Update &amp; email customer</button>
-              </div>
-              <div style="font-size:11px;color:var(--muted);margin-top:6px">The pickup partner completes the swap at the door — it then shows as <b>Exchanged</b> here automatically.</div>
+              ${r.status === 'Exchanged' ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px">✅ Exchanged${r.picked_up_at ? ' on ' + new Date(r.picked_up_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''} — replacement handed over.</div>` : '<div style="font-size:11px;color:var(--muted);margin-top:6px">Handled by the vendor &amp; pickup partner.</div>'}
             </div>
           </div>`;
         }).join('');
@@ -1507,7 +1484,6 @@
         document.getElementById('exchangesList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
       }
     }
-    document.getElementById('exchangesList').addEventListener('click', e => returnsClickHandler(e, loadExchanges));
 
     // Shared by both the Returns and Exchanges lists. `reload` re-renders the
     // list the click came from.
@@ -1634,10 +1610,16 @@
             <div class="row-title">${esc(p.name)}${p.active ? '' : ' <span style="font-size:11px;color:var(--muted)">(inactive)</span>'}</div>
             <div class="row-sub">${esc(p.category || '')} · 🏪 ${esc((p.vendors || {}).name || '')} · ${inr(p.price)}</div>
           </div>
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
-            <input type="checkbox" data-qc="${p.id}" ${p.return_photo_qc ? 'checked' : ''}>
-            📷 Photo QC
-          </label>
+          <div style="display:flex;gap:14px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" data-qc="${p.id}" ${p.return_photo_qc ? 'checked' : ''}>
+              📷 Photo QC
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" data-exch="${p.id}" ${p.exchangeable ? 'checked' : ''}>
+              🔁 Exchangeable
+            </label>
+          </div>
         </div>`).join('');
     }
     async function loadProducts() {
@@ -1650,14 +1632,23 @@
     }
     document.getElementById('prodSearch').addEventListener('input', renderProducts);
     document.getElementById('productsList').addEventListener('change', async e => {
-      const cb = e.target.closest('[data-qc]');
+      const qcCb = e.target.closest('[data-qc]');
+      const exCb = e.target.closest('[data-exch]');
+      const cb = qcCb || exCb;
       if (!cb) return;
       cb.disabled = true;
       try {
-        await apiPost({ action: 'set-product-qc', productId: cb.dataset.qc, on: cb.checked });
-        const p = lastProducts.find(x => x.id === cb.dataset.qc);
-        if (p) p.return_photo_qc = cb.checked;
-        toast(cb.checked ? 'Photo QC required for this item' : 'Photo QC turned off');
+        if (qcCb) {
+          await apiPost({ action: 'set-product-qc', productId: qcCb.dataset.qc, on: qcCb.checked });
+          const p = lastProducts.find(x => x.id === qcCb.dataset.qc);
+          if (p) p.return_photo_qc = qcCb.checked;
+          toast(qcCb.checked ? 'Photo QC required for this item' : 'Photo QC turned off');
+        } else {
+          await apiPost({ action: 'set-product-exchangeable', productId: exCb.dataset.exch, on: exCb.checked });
+          const p = lastProducts.find(x => x.id === exCb.dataset.exch);
+          if (p) p.exchangeable = exCb.checked;
+          toast(exCb.checked ? 'Marked exchangeable (fashion)' : 'Exchange turned off for this item');
+        }
       } catch (err) { toast(err.message); cb.checked = !cb.checked; }
       cb.disabled = false;
     });
