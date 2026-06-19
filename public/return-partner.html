@@ -100,8 +100,31 @@
       font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; white-space: nowrap;
     }
     .hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
-    .pickedup { display: inline-block; font-size: 11px; font-weight: 800; color: var(--green); margin-top: 10px; }
+    .pickedup { display: inline-block; font-size: 12px; font-weight: 800; color: var(--green); margin-top: 10px; }
     .state { text-align: center; padding: 44px 16px; color: var(--muted); font-size: 14px; }
+
+    /* Photo QC */
+    .qc-wrap { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 12px; }
+    .qc-head { font-size: 12px; font-weight: 800; color: var(--dark); margin-bottom: 10px; }
+    .qc-product { margin-bottom: 12px; }
+    .qc-pname { font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    .qc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .qc-tile {
+      position: relative; aspect-ratio: 1; border: 1.5px dashed var(--border); border-radius: 9px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      cursor: pointer; overflow: hidden; background: var(--bg);
+    }
+    .qc-tile.done { border-style: solid; border-color: var(--green); }
+    .qc-tile.uploading { opacity: 0.5; pointer-events: none; }
+    .qc-tile img { width: 100%; height: 100%; object-fit: cover; }
+    .qc-slot { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+    .qc-plus { font-size: 20px; color: var(--primary); line-height: 1; }
+    .qc-progress { font-size: 11px; font-weight: 700; color: var(--muted); margin: 10px 0 8px; }
+    .qc-actions { display: flex; gap: 8px; }
+    .qc-pass, .qc-fail { flex: 1; padding: 12px; border: none; border-radius: 9px; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; }
+    .qc-pass { background: var(--green); color: #fff; }
+    .qc-pass:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .qc-fail { background: #fff; color: var(--red); border: 1px solid #fecaca; }
 
     .toast {
       position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(80px);
@@ -218,6 +241,59 @@
       loadList();
     }
 
+    const SLOTS = ['top', 'bottom', 'left', 'right'];
+    const photoFor = (r, pid, slot) => (r.photos || []).find(p => String(p.product_id) === String(pid) && p.slot === slot);
+
+    // What to show once a pickup is confirmed: either the photo QC step (flagged
+    // items) or a simple done message.
+    function pickupBody(r) {
+      if (!r.requires_photo_qc) return '<div class="pickedup">✅ Picked up — handed to the hub.</div>';
+      if (r.qc_status === 'passed') return '<div class="pickedup">✅ Photos done · QC passed — awaiting refund approval.</div>';
+      const need = r.qc_products || [];
+      const have = (r.photos || []).filter(p => need.some(n => String(n.product_id) === String(p.product_id))).length;
+      const total = need.length * 4;
+      const complete = have >= total && total > 0;
+      const blocks = need.map(p => `
+        <div class="qc-product">
+          <div class="qc-pname">📦 ${esc(p.name)}</div>
+          <div class="qc-grid">
+            ${SLOTS.map(s => {
+              const ph = photoFor(r, p.product_id, s);
+              return `<label class="qc-tile ${ph ? 'done' : ''}">
+                ${ph ? `<img src="${esc(ph.url)}" alt="">` : `<span class="qc-slot">${s}</span><span class="qc-plus">＋</span>`}
+                <input type="file" accept="image/*" capture="environment"
+                  data-up-order="${esc(r.order_id)}" data-up-product="${esc(p.product_id)}" data-up-slot="${s}" hidden>
+              </label>`;
+            }).join('')}
+          </div>
+        </div>`).join('');
+      return `
+        <div class="qc-wrap">
+          <div class="qc-head">🔍 Photo inspection — all 4 angles per item</div>
+          ${blocks}
+          <div class="qc-progress">${have}/${total} photos captured</div>
+          <div class="qc-actions">
+            <button class="qc-fail" data-qc-fail="${esc(r.order_id)}">✗ QC Fail</button>
+            <button class="qc-pass" data-qc-pass="${esc(r.order_id)}" ${complete ? '' : 'disabled'}>✓ QC Pass</button>
+          </div>
+          <div class="hint">Check for wear, scratches or physical damage. Fail if the item is not in resellable condition.</div>
+        </div>`;
+    }
+
+    async function uploadPhoto(file, orderId, productId, slot) {
+      const sig = await api('rp-sign-upload', { orderId });
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('api_key', sig.apiKey);
+      fd.append('timestamp', sig.timestamp);
+      fd.append('signature', sig.signature);
+      fd.append('folder', sig.folder);
+      const res = await fetch(sig.uploadUrl, { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!data.secure_url) throw new Error((data.error && data.error.message) || 'Upload failed');
+      await api('rp-save-photo', { orderId, productId, slot, publicId: data.public_id, url: data.secure_url });
+    }
+
     /* ---- Assigned pickups ---- */
     async function loadList() {
       const el = document.getElementById('list');
@@ -234,7 +310,6 @@
           const resCls = r.resolution === 'refund' ? 'res-refund' : (r.resolution === 'exchange' ? 'res-exchange' : 'res-na');
           const resTxt = r.resolution === 'refund' ? '💸 REFUND' : (r.resolution === 'exchange' ? '🔁 EXCHANGE' : '⏳ TO DECIDE');
           const phone = o.customer_phone || r.phone || '';
-          const pickedUp = r.status === 'Picked up';
           return `
           <div class="dcard">
             <div class="dtop">
@@ -253,13 +328,13 @@
               <b>${esc(o.customer_name || r.customer_name || '')}</b>${phone ? ` · <a href="tel:${esc(phone)}">📞 ${esc(phone)}</a>` : ''}
               <div style="margin-top:6px">${addrHtml(o)}</div>
             </div>
-            ${pickedUp
-              ? '<div class="pickedup">✅ Picked up — handed to the hub for QC.</div>'
-              : `<div class="otp-row">
+            ${r.status === 'Assigned'
+              ? `<div class="otp-row">
                    <input data-otp="${esc(r.order_id)}" type="text" inputmode="numeric" maxlength="6" placeholder="Pickup code">
                    <button class="btn-verify" data-verify="${esc(r.order_id)}">Confirm pickup</button>
                  </div>
-                 <div class="hint">Ask the customer for the 6-digit pickup code shown in their RajkotMarket profile.</div>`}
+                 <div class="hint">Ask the customer for the 6-digit pickup code shown in their RajkotMarket profile.</div>`
+              : pickupBody(r)}
           </div>`;
         }).join('');
       } catch (e) {
@@ -269,6 +344,23 @@
 
     document.getElementById('list').addEventListener('click', async e => {
       const v = e.target.closest('[data-verify]');
+      const pass = e.target.closest('[data-qc-pass]');
+      const fail = e.target.closest('[data-qc-fail]');
+
+      if (pass) {
+        pass.disabled = true; pass.textContent = 'Submitting…';
+        try { await api('rp-qc', { orderId: pass.dataset.qcPass, result: 'pass' }); toast('QC passed ✓'); loadList(); }
+        catch (err) { toast(err.message); pass.disabled = false; pass.textContent = '✓ QC Pass'; }
+        return;
+      }
+      if (fail) {
+        const note = prompt('Reason for failing QC (wear / scratch / damage):');
+        if (note === null) return;
+        try { await api('rp-qc', { orderId: fail.dataset.qcFail, result: 'fail', note }); toast('QC failed — item returns to customer'); loadList(); }
+        catch (err) { toast(err.message); }
+        return;
+      }
+
       if (!v) return;
       const orderId = v.dataset.verify;
       const input = document.querySelector(`[data-otp="${CSS.escape(orderId)}"]`);
@@ -282,6 +374,22 @@
       } catch (err) {
         toast(err.message);
         v.disabled = false;
+      }
+    });
+
+    // Capturing a QC photo: sign -> upload to Cloudinary -> record.
+    document.getElementById('list').addEventListener('change', async e => {
+      const inp = e.target.closest('[data-up-slot]');
+      if (!inp || !inp.files || !inp.files[0]) return;
+      const tile = inp.closest('.qc-tile');
+      if (tile) tile.classList.add('uploading');
+      try {
+        await uploadPhoto(inp.files[0], inp.dataset.upOrder, inp.dataset.upProduct, inp.dataset.upSlot);
+        toast('Photo saved');
+        loadList();
+      } catch (err) {
+        toast(err.message);
+        if (tile) tile.classList.remove('uploading');
       }
     });
 

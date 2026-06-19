@@ -280,6 +280,7 @@
         <button class="tab" data-tab="reviews">Reviews</button>
         <button class="tab" data-tab="complaints">Complaints</button>
         <button class="tab" data-tab="returns">Returns</button>
+        <button class="tab" data-tab="products">Products</button>
         <button class="tab" data-tab="settings">Settings</button>
       </div>
       <div class="export-wrap" id="exportWrap">
@@ -398,6 +399,16 @@
     </section>
 
     <!-- RETURNS -->
+    <!-- PRODUCTS (return photo-QC flag) -->
+    <section class="panel" id="panel-products">
+      <div class="card">
+        <h3>🔍 Return photo inspection</h3>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Turn this on for items that must be photographed from 4 angles (top / bottom / left / right) at return pickup — typically fashion, smartphones, laptops &amp; other high-value goods. Off = the partner just gives a visual OK.</p>
+        <input id="prodSearch" type="text" placeholder="Search products by name, category or shop…" style="width:100%;margin-bottom:12px">
+        <div id="productsList"><div class="state">Loading…</div></div>
+      </div>
+    </section>
+
     <section class="panel" id="panel-returns">
       <div class="card">
         <h3>📦 Pickup partners</h3>
@@ -1494,6 +1505,48 @@
       } catch (err) { toast(err.message); }
     });
 
+    /* ---------- Products: return photo-QC flag ---------- */
+    let lastProducts = [];
+    function renderProducts() {
+      const q = (document.getElementById('prodSearch').value || '').toLowerCase().trim();
+      const rows = lastProducts.filter(p => !q ||
+        [p.name, p.category, (p.vendors || {}).name].filter(Boolean).join(' ').toLowerCase().includes(q));
+      const el = document.getElementById('productsList');
+      if (!rows.length) { el.innerHTML = '<div class="state">No products match.</div>'; return; }
+      el.innerHTML = rows.map(p => `
+        <div class="list-row" style="align-items:center">
+          <div class="row-info">
+            <div class="row-title">${esc(p.name)}${p.active ? '' : ' <span style="font-size:11px;color:var(--muted)">(inactive)</span>'}</div>
+            <div class="row-sub">${esc(p.category || '')} · 🏪 ${esc((p.vendors || {}).name || '')} · ${inr(p.price)}</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+            <input type="checkbox" data-qc="${p.id}" ${p.return_photo_qc ? 'checked' : ''}>
+            📷 Photo QC
+          </label>
+        </div>`).join('');
+    }
+    async function loadProducts() {
+      try {
+        lastProducts = await apiGet('products');
+        renderProducts();
+      } catch (e) {
+        document.getElementById('productsList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+    document.getElementById('prodSearch').addEventListener('input', renderProducts);
+    document.getElementById('productsList').addEventListener('change', async e => {
+      const cb = e.target.closest('[data-qc]');
+      if (!cb) return;
+      cb.disabled = true;
+      try {
+        await apiPost({ action: 'set-product-qc', productId: cb.dataset.qc, on: cb.checked });
+        const p = lastProducts.find(x => x.id === cb.dataset.qc);
+        if (p) p.return_photo_qc = cb.checked;
+        toast(cb.checked ? 'Photo QC required for this item' : 'Photo QC turned off');
+      } catch (err) { toast(err.message); cb.checked = !cb.checked; }
+      cb.disabled = false;
+    });
+
     /* ---------- Settings ---------- */
     document.getElementById('pinForm').addEventListener('submit', async e => {
       e.preventDefault();
@@ -1726,6 +1779,7 @@
         if (tab.dataset.tab === 'reviews') loadReviews();
         if (tab.dataset.tab === 'complaints') loadComplaints();
         if (tab.dataset.tab === 'returns') loadReturns();
+        if (tab.dataset.tab === 'products') loadProducts();
         updateExportLabel();
       });
     });

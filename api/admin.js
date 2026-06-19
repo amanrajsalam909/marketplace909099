@@ -97,11 +97,32 @@ module.exports = async (req, res) => {
         return res.json(data);
       }
 
+      // Products with their return photo-QC flag (admin sets which items need
+      // the 4-angle inspection at pickup).
+      if (action === 'products') {
+        const { data, error } = await supabase
+          .from('products')
+          .select('id, name, category, price, active, return_photo_qc, vendors(name)')
+          .order('name', { ascending: true });
+        if (error) throw error;
+        return res.json(data || []);
+      }
+
       return res.status(400).json({ error: 'Invalid action' });
     }
 
     if (req.method === 'POST') {
       const { action } = req.body;
+
+      // ---------- Per-product return photo-QC flag (admin only) ----------
+      if (action === 'set-product-qc') {
+        const { error } = await supabase
+          .from('products')
+          .update({ return_photo_qc: req.body.on === true, updated_at: new Date().toISOString() })
+          .eq('id', req.body.productId);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
 
       // ---------- On-demand Google Drive backup ----------
       // Saves a JSON snapshot of a dataset to Drive. Read-only; never edits the

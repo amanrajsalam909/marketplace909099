@@ -5,7 +5,31 @@ const { validateCustomerSession } = require('./customer-auth');
 const { findSession, getToken, newSessionToken, hashToken } = require('../lib/sessions');
 const { hashPassword, verifyPassword } = require('../lib/password');
 const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
+const cloudinary = require('../lib/cloudinary');
 const crypto = require('crypto');
+
+const QC_SLOTS = ['top', 'bottom', 'left', 'right'];
+
+// For a set of order ids, return { [orderId]: [{product_id, name}] } of the
+// items whose product is flagged return_photo_qc — i.e. the items that require
+// the 4-angle inspection at pickup.
+async function flaggedProductsByOrder(orderIds) {
+  const out = {};
+  if (!orderIds.length) return out;
+  const { data: items } = await supabase
+    .from('order_items').select('order_id, product_id, product_name').in('order_id', orderIds);
+  const pids = [...new Set((items || []).map(i => i.product_id).filter(Boolean))];
+  if (!pids.length) return out;
+  const { data: prods } = await supabase
+    .from('products').select('id, return_photo_qc').in('id', pids);
+  const flagged = new Set((prods || []).filter(p => p.return_photo_qc).map(p => p.id));
+  (items || []).forEach(i => {
+    if (flagged.has(i.product_id)) {
+      (out[i.order_id] = out[i.order_id] || []).push({ product_id: i.product_id, name: i.product_name });
+    }
+  });
+  return out;
+}
 
 const RETURN_WINDOW_DAYS = 3;
 const RETURN_STATUSES = [
@@ -329,21 +353,32 @@ module.exports = async (req, res) => {
         if (action === 'rp-orders') {
           const { data: rets } = await supabase
             .from('return_requests')
-            .select('order_id, reason, resolution, status, customer_name, phone, assigned_at')
+            .select('order_id, reason, resolution, status, qc_status, customer_name, phone, assigned_at')
             .eq('assigned_partner_id', partner.partner_id)
             .in('status', ['Assigned', 'Picked up'])
             .order('assigned_at', { ascending: true });
           const list = rets || [];
           const ids = list.map(r => r.order_id);
           const orders = {};
+          let flagged = {}, photosByOrder = {};
           if (ids.length) {
             const { data: ords } = await supabase
               .from('orders')
               .select('order_id, customer_name, customer_phone, delivery_address, address_json, total, items_json, vendors(name)')
               .in('order_id', ids);
             (ords || []).forEach(o => { orders[o.order_id] = o; });
+            flagged = await flaggedProductsByOrder(ids);
+            const { data: photos } = await supabase
+              .from('return_photos').select('order_id, product_id, slot, url').in('order_id', ids);
+            (photos || []).forEach(p => { (photosByOrder[p.order_id] = photosByOrder[p.order_id] || []).push(p); });
           }
-          return res.json(list.map(r => ({ ...r, order: orders[r.order_id] || null })));
+          return res.json(list.map(r => ({
+            ...r,
+            order: orders[r.order_id] || null,
+            qc_products: flagged[r.order_id] || [],
+            requires_photo_qc: (flagged[r.order_id] || []).length > 0,
+            photos: photosByOrder[r.order_id] || []
+          })));
         }
 
         // Verify the customer's pickup OTP at the door -> mark Picked up.
@@ -378,6 +413,79 @@ module.exports = async (req, res) => {
           await supabase.from('return_otps').delete().eq('order_id', orderId);
           if (upd && upd.email) sendReturnUpdate(upd.email, upd).catch(() => {});
           return res.json({ success: true });
+        }
+
+        // Helper: confirm this order is a picked-up return assigned to the caller.
+        const ownsPickup = async (orderId) => {
+          if (!orderId) return null;
+          const { data } = await supabase
+            .from('return_requests').select('id, status, assigned_partner_id, email, order_id')
+            .eq('order_id', orderId).maybeSingle();
+          if (!data || data.assigned_partner_id !== partner.partner_id) return null;
+          return data;
+        };
+
+        // Sign one Cloudinary upload (the photo uploads browser -> Cloudinary).
+        if (action === 'rp-sign-upload') {
+          const ret = await ownsPickup(String(req.body.orderId || ''));
+          if (!ret) return res.status(404).json({ error: 'This pickup is not assigned to you.' });
+          if (ret.status !== 'Picked up') return res.status(400).json({ error: 'Confirm the pickup before adding photos.' });
+          try {
+            return res.json(cloudinary.signUpload(`returns/${ret.order_id}`));
+          } catch (e) { return res.status(503).json({ error: e.message }); }
+        }
+
+        // Record one captured QC photo (after it lands on Cloudinary).
+        if (action === 'rp-save-photo') {
+          const ret = await ownsPickup(String(req.body.orderId || ''));
+          if (!ret) return res.status(404).json({ error: 'This pickup is not assigned to you.' });
+          const slot = String(req.body.slot || '');
+          if (!QC_SLOTS.includes(slot)) return res.status(400).json({ error: 'Invalid photo slot.' });
+          if (!req.body.url) return res.status(400).json({ error: 'Missing photo url.' });
+          // One photo per (order, product, slot): replace any prior shot.
+          await supabase.from('return_photos').delete()
+            .eq('order_id', ret.order_id).eq('product_id', req.body.productId || null).eq('slot', slot);
+          const { error } = await supabase.from('return_photos').insert({
+            order_id: ret.order_id, product_id: req.body.productId || null, slot,
+            public_id: String(req.body.publicId || ''), url: String(req.body.url)
+          });
+          if (error) throw error;
+          return res.json({ success: true });
+        }
+
+        // Partner's physical QC verdict (Gate 2). Pass -> awaits admin Gate 3.
+        // Fail -> the item goes back to the customer, no refund.
+        if (action === 'rp-qc') {
+          const ret = await ownsPickup(String(req.body.orderId || ''));
+          if (!ret) return res.status(404).json({ error: 'This pickup is not assigned to you.' });
+          if (ret.status !== 'Picked up') return res.status(400).json({ error: 'Confirm the pickup first.' });
+          const pass = req.body.result === 'pass';
+          const note = String(req.body.note || '').trim().slice(0, 600);
+
+          if (pass) {
+            // Every flagged product must have all four angles before a pass.
+            const flagged = await flaggedProductsByOrder([ret.order_id]);
+            const need = flagged[ret.order_id] || [];
+            if (need.length) {
+              const { data: photos } = await supabase
+                .from('return_photos').select('product_id, slot').eq('order_id', ret.order_id);
+              const have = {};
+              (photos || []).forEach(p => { (have[p.product_id] = have[p.product_id] || new Set()).add(p.slot); });
+              const incomplete = need.find(p => QC_SLOTS.some(s => !(have[p.product_id] && have[p.product_id].has(s))));
+              if (incomplete) return res.status(400).json({ error: `Capture all 4 angles for "${incomplete.name}" before passing QC.` });
+            }
+          }
+
+          const upd = {
+            qc_status: pass ? 'passed' : 'failed',
+            qc_note: note || null,
+            updated_at: new Date().toISOString()
+          };
+          if (!pass) upd.status = 'QC failed';   // pass keeps "Picked up" for the admin gate
+          const { data: r } = await supabase
+            .from('return_requests').update(upd).eq('id', ret.id).select('*').single();
+          if (r && r.email) sendReturnUpdate(r.email, r).catch(() => {});
+          return res.json({ success: true, qc_status: upd.qc_status });
         }
 
         return res.status(400).json({ error: 'Unknown action' });
