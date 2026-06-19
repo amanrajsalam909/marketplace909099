@@ -126,7 +126,7 @@ module.exports = async (req, res) => {
         if (!cs) return res.status(401).json({ error: 'Not logged in.' });
         const { data } = await supabase
           .from('return_requests')
-          .select('order_id, reason, status, resolution, admin_note, refund_amount, refund_method, created_at, updated_at')
+          .select('order_id, request_type, reason, status, resolution, admin_note, refund_amount, refund_method, picked_up_at, created_at, updated_at')
           .eq('phone', cs.phone)
           .order('created_at', { ascending: false });
         const rows = data || [];
@@ -288,7 +288,8 @@ module.exports = async (req, res) => {
       // Customer requests a return on a delivered order (within the window)
       if (action === 'submit-return') {
         const { orderId, phone, reason } = req.body;
-        if (!reason || !String(reason).trim()) return res.status(400).json({ error: 'Please choose a reason for the return.' });
+        const requestType = req.body.type === 'exchange' ? 'exchange' : 'return';
+        if (!reason || !String(reason).trim()) return res.status(400).json({ error: `Please choose a reason for the ${requestType}.` });
 
         const norm = String(phone || '').replace(/\D/g, '').slice(-10);
         const { data: ord } = await supabase
@@ -313,13 +314,14 @@ module.exports = async (req, res) => {
         if (existing) return res.status(400).json({ error: 'A return is already in progress for this order.' });
 
         const ret = {
-          order_id: orderId, vendor_id: ord.vendor_id,
+          order_id: orderId, vendor_id: ord.vendor_id, request_type: requestType,
           customer_name: ord.customer_name, email: ord.customer_email, phone: ord.customer_phone,
-          reason: String(reason).trim().slice(0, 600), status: 'Requested'
+          reason: String(reason).trim().slice(0, 600), status: 'Requested',
+          ...(requestType === 'exchange' ? { resolution: 'exchange' } : {})
         };
         const { error } = await supabase.from('return_requests').insert(ret);
         if (error) {
-          if (error.code === '23505') return res.status(400).json({ error: 'A return is already in progress for this order.' });
+          if (error.code === '23505') return res.status(400).json({ error: 'A return or exchange is already in progress for this order.' });
           throw error;
         }
         if (ret.email) sendReturnUpdate(ret.email, ret).catch(() => {});
@@ -367,7 +369,7 @@ module.exports = async (req, res) => {
         if (action === 'rp-orders') {
           const { data: rets } = await supabase
             .from('return_requests')
-            .select('order_id, reason, resolution, status, qc_status, customer_name, phone, assigned_at')
+            .select('order_id, request_type, reason, resolution, status, qc_status, customer_name, phone, assigned_at')
             .eq('assigned_partner_id', partner.partner_id)
             .in('status', ['Assigned', 'Picked up'])
             .order('assigned_at', { ascending: true });
@@ -433,7 +435,7 @@ module.exports = async (req, res) => {
         const ownsPickup = async (orderId) => {
           if (!orderId) return null;
           const { data } = await supabase
-            .from('return_requests').select('id, status, assigned_partner_id, email, order_id')
+            .from('return_requests').select('id, status, request_type, assigned_partner_id, email, order_id')
             .eq('order_id', orderId).maybeSingle();
           if (!data || data.assigned_partner_id !== partner.partner_id) return null;
           return data;
@@ -495,13 +497,21 @@ module.exports = async (req, res) => {
             qc_note: note || null,
             updated_at: new Date().toISOString()
           };
-          if (!pass) upd.status = 'QC failed';   // pass keeps "Picked up" for the admin gate
+          // QC fail -> case closes, item goes back. QC pass: an EXCHANGE is
+          // completed at the door (partner hands over the replacement), so it
+          // closes as 'Exchanged'; a RETURN stays 'Picked up' for the admin's
+          // refund gate.
+          if (!pass) upd.status = 'QC failed';
+          else if (ret.request_type === 'exchange') {
+            upd.status = 'Exchanged';
+            if (!ret.picked_up_at) upd.picked_up_at = new Date().toISOString();
+          }
           const { data: r } = await supabase
             .from('return_requests').update(upd).eq('id', ret.id).select('*').single();
           if (r && r.email) sendReturnUpdate(r.email, r).catch(() => {});
-          // QC fail closes the case (item goes back) -> archive the evidence.
-          if (!pass) await archiveReturnPhotos(ret.order_id).catch(() => {});
-          return res.json({ success: true, qc_status: upd.qc_status });
+          // Terminal outcomes -> archive the QC photos to Drive + purge Cloudinary.
+          if (r && TERMINAL_RETURN_STATUSES.includes(r.status)) await archiveReturnPhotos(ret.order_id).catch(() => {});
+          return res.json({ success: true, qc_status: upd.qc_status, status: upd.status || ret.status });
         }
 
         return res.status(400).json({ error: 'Unknown action' });
@@ -551,13 +561,17 @@ module.exports = async (req, res) => {
 
       // Admin advances a return and emails the customer the update.
       if (action === 'update-return') {
-        if (!RETURN_STATUSES.includes(req.body.status)) {
+        // status is optional — a note-only update (e.g. on exchange cards) leaves
+        // the current status untouched. When given, it must be valid.
+        const newStatus = (req.body.status === undefined || req.body.status === '') ? null : req.body.status;
+        if (newStatus !== null && !RETURN_STATUSES.includes(newStatus)) {
           return res.status(400).json({ error: 'Invalid return status.' });
         }
-        const upd = { status: req.body.status, updated_at: new Date().toISOString() };
+        const upd = { updated_at: new Date().toISOString() };
+        if (newStatus) upd.status = newStatus;
         if (req.body.admin_note !== undefined) upd.admin_note = String(req.body.admin_note || '').trim().slice(0, 1000);
         if (req.body.resolution === 'refund' || req.body.resolution === 'exchange') upd.resolution = req.body.resolution;
-        if (req.body.status === 'Refunded') {
+        if (newStatus === 'Refunded') {
           upd.refund_amount = (req.body.refund_amount != null && req.body.refund_amount !== '') ? Number(req.body.refund_amount) : null;
           upd.refund_method = String(req.body.refund_method || '').trim().slice(0, 60);
         }
@@ -565,13 +579,13 @@ module.exports = async (req, res) => {
           .from('return_requests').update(upd).eq('id', req.body.returnId).select('*').single();
         if (error) throw error;
         // On refund: restore stock + reverse commission (idempotent in the DB).
-        if (req.body.status === 'Refunded' && r) {
+        if (newStatus === 'Refunded' && r) {
           const { error: rpcErr } = await supabase.rpc('process_return_refund', { p_order_id: r.order_id });
           if (rpcErr) throw rpcErr;
         }
         if (r && r.email) sendReturnUpdate(r.email, r).catch(() => {});
         // Closing the case -> archive photos to Drive + purge Cloudinary.
-        if (r && TERMINAL_RETURN_STATUSES.includes(req.body.status)) {
+        if (r && newStatus && TERMINAL_RETURN_STATUSES.includes(newStatus)) {
           await archiveReturnPhotos(r.order_id).catch(() => {});
         }
         return res.json({ success: true });
@@ -583,9 +597,10 @@ module.exports = async (req, res) => {
       if (action === 'finalize-return') {
         const { data: ret } = await supabase
           .from('return_requests')
-          .select('id, order_id, status, qc_status, email, phone')
+          .select('id, order_id, request_type, status, qc_status, email, phone')
           .eq('id', req.body.returnId).maybeSingle();
         if (!ret) return res.status(404).json({ error: 'Return not found.' });
+        if (ret.request_type === 'exchange') return res.status(400).json({ error: 'Exchanges are completed by the pickup partner at the door, not finalized here.' });
         if (ret.status !== 'Picked up') return res.status(400).json({ error: 'The item must be picked up before finalizing.' });
 
         // Gate 2 must be satisfied if any item required photo QC.

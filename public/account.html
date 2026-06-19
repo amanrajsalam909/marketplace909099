@@ -419,13 +419,15 @@
     };
     function returnBlock(r) {
       const badge = RET_BADGE[r.status] || RET_BADGE['Requested'];
+      const isExchange = r.request_type === 'exchange';
       return `
         <div style="margin:10px 0;border:1px solid var(--border);border-radius:10px;padding:10px 12px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="font-size:12px;font-weight:700;color:var(--dark)">↩️ Return</span>
+            <span style="font-size:12px;font-weight:700;color:var(--dark)">${isExchange ? '🔁 Exchange' : '↩️ Return'}</span>
             <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;${badge}">${esc(r.status)}</span>
           </div>
           <div style="font-size:12px;color:var(--muted);margin-top:3px">Reason: ${esc(r.reason)}</div>
+          ${r.status === 'Exchanged' ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px">✅ Exchanged${r.picked_up_at ? ' on ' + new Date(r.picked_up_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''} — replacement handed over.</div>` : ''}
           ${r.status === 'Assigned' && r.pickup_otp ? `
             <div style="margin:10px 0 2px;text-align:center;border:2px dashed var(--primary);border-radius:10px;padding:12px;background:#fff7ed">
               <div style="font-size:12px;font-weight:700;color:var(--dark)">📦 Pickup code</div>
@@ -490,6 +492,7 @@
                   <a href="track.html?orderId=${encodeURIComponent(o.order_id)}&phone=${encodeURIComponent(cust.phone)}">Track</a>
                   ${o.status === 'delivered' ? `<a href="#" data-review="${esc(o.order_id)}">Review</a>` : ''}
                   ${o.status === 'delivered' && !ret ? `<a href="#" data-return="${esc(o.order_id)}">Return</a>` : ''}
+                  ${o.status === 'delivered' && !ret ? `<a href="#" data-exchange="${esc(o.order_id)}">Exchange</a>` : ''}
                   ${o.status !== 'cancelled' ? `<a href="#" data-complain="${esc(o.order_id)}">Complain</a>` : ''}
                   ${canCancel ? `<a href="#" class="danger" data-cancel="${esc(o.order_id)}">Cancel</a>` : ''}
                 </div>
@@ -539,6 +542,8 @@
       if (comp) { e.preventDefault(); openComplaint(comp.dataset.complain); return; }
       const retn = e.target.closest('[data-return]');
       if (retn) { e.preventDefault(); openReturn(retn.dataset.return); return; }
+      const exch = e.target.closest('[data-exchange]');
+      if (exch) { e.preventDefault(); openReturn(exch.dataset.exchange, 'exchange'); return; }
       const c = e.target.closest('[data-cancel]');
       if (!c) return;
       e.preventDefault();
@@ -649,38 +654,41 @@
       } catch (e) { fbErr(e.message); btn.disabled = false; btn.textContent = 'Submit complaint'; }
     }
 
-    function openReturn(orderId) {
-      openFbModal('Return this order', `
+    function openReturn(orderId, type = 'return') {
+      const isExchange = type === 'exchange';
+      const reasons = isExchange
+        ? ['Size too small', 'Size too large', 'Tight fit', 'Loose fit', 'Wrong size delivered', 'Wrong colour delivered', 'Other']
+        : ['Damaged or defective', 'Wrong item delivered', 'Not as described', 'Quality not satisfactory', 'Changed my mind', 'Other'];
+      openFbModal(isExchange ? 'Exchange this order' : 'Return this order', `
         <div id="fbErrBox" style="${FBERR}"></div>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Order <b>${esc(orderId)}</b> · returns are accepted within 3 days of delivery.</p>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Order <b>${esc(orderId)}</b> · ${isExchange
+          ? 'we pick up the item and hand you the same product in the right size/colour at the same time.'
+          : 'returns are accepted within 3 days of delivery.'}</p>
         <select id="retReason" style="${FBFIELD}">
           <option value="">Select a reason…</option>
-          <option>Damaged or defective</option>
-          <option>Wrong item delivered</option>
-          <option>Not as described</option>
-          <option>Quality not satisfactory</option>
-          <option>Changed my mind</option>
-          <option>Other</option>
+          ${reasons.map(r => `<option>${r}</option>`).join('')}
         </select>
         <textarea id="retNote" rows="3" placeholder="Add any details (optional)" style="${FBFIELD}"></textarea>
-        <button id="retSubmit" style="${FBBTN}">Request return</button>`);
-      document.getElementById('retSubmit').addEventListener('click', () => submitReturn(orderId));
+        <button id="retSubmit" style="${FBBTN}">${isExchange ? 'Request exchange' : 'Request return'}</button>`);
+      document.getElementById('retSubmit').addEventListener('click', () => submitReturn(orderId, type));
     }
-    async function submitReturn(orderId) {
+    async function submitReturn(orderId, type = 'return') {
+      const isExchange = type === 'exchange';
       const reasonSel = document.getElementById('retReason').value;
       const note = document.getElementById('retNote').value.trim();
       if (!reasonSel) return fbErr('Please choose a reason.');
       const reason = reasonSel + (note ? ' — ' + note : '');
+      const label = isExchange ? 'exchange' : 'return';
       const btn = document.getElementById('retSubmit'); btn.disabled = true; btn.textContent = 'Submitting…';
       try {
         const res = await fetch('/api/feedback', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'submit-return', orderId, phone: cust.phone, reason })
+          body: JSON.stringify({ action: 'submit-return', orderId, phone: cust.phone, reason, type })
         });
         const d = await res.json();
-        if (!d.success) throw new Error(d.error || 'Could not request the return.');
-        closeFbModal(); toast('Return requested — we\'ll review it shortly.'); loadOrders();
-      } catch (e) { fbErr(e.message); btn.disabled = false; btn.textContent = 'Request return'; }
+        if (!d.success) throw new Error(d.error || `Could not request the ${label}.`);
+        closeFbModal(); toast(`${isExchange ? 'Exchange' : 'Return'} requested — we'll review it shortly.`); loadOrders();
+      } catch (e) { fbErr(e.message); btn.disabled = false; btn.textContent = isExchange ? 'Request exchange' : 'Request return'; }
     }
 
     /* ---------- Addresses ---------- */

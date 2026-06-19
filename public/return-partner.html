@@ -247,13 +247,18 @@
     // What to show once a pickup is confirmed: either the photo QC step (flagged
     // items) or a simple done message.
     function pickupBody(r) {
-      if (!r.requires_photo_qc) return '<div class="pickedup">✅ Picked up — handed to the hub.</div>';
-      if (r.qc_status === 'passed') return '<div class="pickedup">✅ Photos done · QC passed — awaiting refund approval.</div>';
+      const isExchange = r.request_type === 'exchange';
+      const flagged = !!r.requires_photo_qc;
+
+      // A RETURN with no photo QC just goes to the hub for the admin's refund gate.
+      if (!isExchange && !flagged) return '<div class="pickedup">✅ Picked up — handed to the hub for refund approval.</div>';
+      if (!isExchange && r.qc_status === 'passed') return '<div class="pickedup">✅ QC passed — awaiting refund approval.</div>';
+
       const need = r.qc_products || [];
       const have = (r.photos || []).filter(p => need.some(n => String(n.product_id) === String(p.product_id))).length;
       const total = need.length * 4;
-      const complete = have >= total && total > 0;
-      const blocks = need.map(p => `
+      const complete = !flagged || (total > 0 && have >= total);   // non-flagged needs no photos
+      const blocks = flagged ? need.map(p => `
         <div class="qc-product">
           <div class="qc-pname">📦 ${esc(p.name)}</div>
           <div class="qc-grid">
@@ -266,17 +271,20 @@
               </label>`;
             }).join('')}
           </div>
-        </div>`).join('');
+        </div>`).join('') : '';
+
+      const passLabel = isExchange ? '✓ QC OK · hand over new item' : '✓ QC Pass';
       return `
         <div class="qc-wrap">
-          <div class="qc-head">🔍 Photo inspection — all 4 angles per item</div>
-          ${blocks}
-          <div class="qc-progress">${have}/${total} photos captured</div>
+          <div class="qc-head">${isExchange ? '🔁 Exchange — inspect, then hand over the replacement' : '🔍 Photo inspection — all 4 angles per item'}</div>
+          ${flagged ? blocks + `<div class="qc-progress">${have}/${total} photos captured</div>` : '<div class="hint" style="margin:6px 0 10px">No photo inspection required — just check the item\'s condition.</div>'}
           <div class="qc-actions">
             <button class="qc-fail" data-qc-fail="${esc(r.order_id)}">✗ QC Fail</button>
-            <button class="qc-pass" data-qc-pass="${esc(r.order_id)}" ${complete ? '' : 'disabled'}>✓ QC Pass</button>
+            <button class="qc-pass" data-qc-pass="${esc(r.order_id)}" ${complete ? '' : 'disabled'}>${passLabel}</button>
           </div>
-          <div class="hint">Check for wear, scratches or physical damage. Fail if the item is not in resellable condition.</div>
+          <div class="hint">${isExchange
+            ? 'On QC OK, give the customer the replacement product now — the case closes as Exchanged.'
+            : 'Check for wear, scratches or physical damage. Fail if the item is not in resellable condition.'}</div>
         </div>`;
     }
 
@@ -307,8 +315,9 @@
           const o = r.order || {};
           const items = Array.isArray(o.items_json) ? o.items_json : [];
           const itemsLine = items.map(i => esc(i.name) + ' × ' + (i.quantity || i.qty || 1)).join(' · ');
-          const resCls = r.resolution === 'refund' ? 'res-refund' : (r.resolution === 'exchange' ? 'res-exchange' : 'res-na');
-          const resTxt = r.resolution === 'refund' ? '💸 REFUND' : (r.resolution === 'exchange' ? '🔁 EXCHANGE' : '⏳ TO DECIDE');
+          const isExchange = r.request_type === 'exchange';
+          const resCls = isExchange ? 'res-exchange' : 'res-refund';
+          const resTxt = isExchange ? '🔁 EXCHANGE' : '↩️ RETURN';
           const phone = o.customer_phone || r.phone || '';
           return `
           <div class="dcard">
@@ -348,9 +357,13 @@
       const fail = e.target.closest('[data-qc-fail]');
 
       if (pass) {
+        const label = pass.textContent;
         pass.disabled = true; pass.textContent = 'Submitting…';
-        try { await api('rp-qc', { orderId: pass.dataset.qcPass, result: 'pass' }); toast('QC passed ✓'); loadList(); }
-        catch (err) { toast(err.message); pass.disabled = false; pass.textContent = '✓ QC Pass'; }
+        try {
+          const d = await api('rp-qc', { orderId: pass.dataset.qcPass, result: 'pass' });
+          toast(d.status === 'Exchanged' ? 'Exchanged ✓ — replacement handed over' : 'QC passed ✓');
+          loadList();
+        } catch (err) { toast(err.message); pass.disabled = false; pass.textContent = label; }
         return;
       }
       if (fail) {

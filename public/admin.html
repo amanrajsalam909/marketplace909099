@@ -280,6 +280,7 @@
         <button class="tab" data-tab="reviews">Reviews</button>
         <button class="tab" data-tab="complaints">Complaints</button>
         <button class="tab" data-tab="returns">Returns</button>
+        <button class="tab" data-tab="exchanges">Exchanges</button>
         <button class="tab" data-tab="products">Products</button>
         <button class="tab" data-tab="settings">Settings</button>
       </div>
@@ -424,8 +425,17 @@
       </div>
       <div class="card">
         <h3>↩️ Returns</h3>
-        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Approve, pick a refund/exchange resolution, assign a pickup partner (this generates the customer's pickup code), then record the refund. The customer is emailed at every step.</p>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Refund-seeking returns only. Approve, assign a pickup partner (generates the customer's pickup code), then Finalize (Gate 3) — refund if the customer saved UPI/bank, else a same-day exchange. The customer is emailed at every step.</p>
         <div id="returnsList"><div class="state">Loading…</div></div>
+      </div>
+    </section>
+
+    <!-- EXCHANGES (same-product swap, completed by the partner at the door) -->
+    <section class="panel" id="panel-exchanges">
+      <div class="card">
+        <h3>🔁 Exchanges</h3>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Same-product swaps (size/colour/fit). Approve &amp; assign a pickup partner. The partner inspects at the door and hands over the replacement at the same time — no refund step. Closes as <b>Exchanged</b> with the pickup/exchange time.</p>
+        <div id="exchangesList"><div class="state">Loading…</div></div>
       </div>
     </section>
 
@@ -1378,8 +1388,9 @@
 
     async function loadReturns() {
       try {
-        const [list] = await Promise.all([api(`/api/feedback?returns=1`), loadPartners()]);
-        lastReturns = list;
+        const [allRows] = await Promise.all([api(`/api/feedback?returns=1`), loadPartners()]);
+        lastReturns = allRows;
+        const list = allRows.filter(r => r.request_type !== 'exchange');
         const partnerOpts = lastPartners.filter(p => p.active);
         const el = document.getElementById('returnsList');
         if (!list.length) { el.innerHTML = '<div class="state">No return requests. 🎉</div>'; return; }
@@ -1442,7 +1453,63 @@
       }
     }
 
-    document.getElementById('returnsList').addEventListener('click', async e => {
+    /* ---------- Exchanges (same-product swap; partner completes at the door) ---------- */
+    async function loadExchanges() {
+      try {
+        const [allRows] = await Promise.all([api(`/api/feedback?returns=1`), loadPartners()]);
+        lastReturns = allRows;
+        const list = allRows.filter(r => r.request_type === 'exchange');
+        const partnerOpts = lastPartners.filter(p => p.active);
+        const el = document.getElementById('exchangesList');
+        if (!list.length) { el.innerHTML = '<div class="state">No exchange requests. 🎉</div>'; return; }
+        el.innerHTML = list.map(r => {
+          const partnerName = (r.return_partners || {}).name || '';
+          const canAssign = ['Approved', 'Assigned'].includes(r.status);
+          return `
+          <div class="list-row" style="align-items:flex-start">
+            <div class="row-info">
+              <div class="row-title">${esc(r.order_id)}
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${RET_BADGE[r.status] || RET_BADGE['Requested']}">${esc(r.status)}</span>
+              </div>
+              <div class="row-sub">${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} (${esc(r.email || '')}) · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
+              <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
+              ${partnerName ? `<div style="font-size:12px;color:var(--text);margin-top:4px">📦 Partner: <b>${esc(partnerName)}</b></div>` : ''}
+              ${r.qc_status ? `<div style="font-size:12px;margin-top:4px;font-weight:600;color:${r.qc_status === 'passed' ? 'var(--green)' : 'var(--red)'}">🔍 Photo QC: ${r.qc_status}</div>` : ''}
+              ${(r.photos || []).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.photos.map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.slot)}"><img src="${esc(p.url)}" style="width:52px;height:52px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`).join('')}</div>` : ''}
+              ${r.status === 'Exchanged' ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:4px">✅ Exchanged${r.picked_up_at ? ' on ' + new Date(r.picked_up_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''} — replacement handed over.</div>` : ''}
+            </div>
+            <div style="flex-basis:100%;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px">
+              ${canAssign ? `
+              <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+                <label style="margin:0 0 5px">Assign pickup partner ${r.status === 'Assigned' ? '(re-assign generates a fresh code)' : '— generates the pickup code'}</label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <select data-ret-partner="${r.id}" style="flex:1;min-width:160px">
+                    <option value="">— choose partner —</option>
+                    ${partnerOpts.map(p => `<option value="${p.id}" ${r.assigned_partner_id === p.id ? 'selected' : ''}>${esc(p.name)} (${esc(p.login_id)})</option>`).join('')}
+                  </select>
+                  <button class="btn btn-primary btn-sm" data-ret-assign="${r.id}">📦 Assign &amp; send code</button>
+                </div>
+              </div>` : ''}
+              <label style="margin-top:4px">Note to customer (optional)</label>
+              <textarea data-ret-note="${r.id}" rows="2" placeholder="Emailed to the customer with this update">${esc(r.admin_note || '')}</textarea>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                ${r.status === 'Requested' ? `<button class="btn btn-sm" data-ret-approve="${r.id}" style="background:var(--green);color:#fff">✅ Approve</button>
+                <button class="btn btn-sm" data-ret-reject="${r.id}" style="background:#fff;color:var(--red);border:1px solid #fecaca">✖ Reject</button>` : ''}
+                <button class="btn btn-primary btn-sm" data-ret-update="${r.id}">✉️ Update &amp; email customer</button>
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-top:6px">The pickup partner completes the swap at the door — it then shows as <b>Exchanged</b> here automatically.</div>
+            </div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById('exchangesList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+    document.getElementById('exchangesList').addEventListener('click', e => returnsClickHandler(e, loadExchanges));
+
+    // Shared by both the Returns and Exchanges lists. `reload` re-renders the
+    // list the click came from.
+    async function returnsClickHandler(e, reload) {
       // Assign a pickup partner -> generates the customer's pickup code.
       const assign = e.target.closest('[data-ret-assign]');
       if (assign) {
@@ -1453,12 +1520,12 @@
         try {
           await fbPost({ action: 'assign-partner', returnId: id, partnerId });
           toast('Partner assigned · pickup code now in the customer profile');
-          loadReturns();
+          reload();
         } catch (err) { toast(err.message); assign.disabled = false; assign.innerHTML = '📦 Assign &amp; send code'; }
         return;
       }
 
-      // Approve a requested return (keeps any chosen resolution) -> Assign box appears.
+      // Approve a requested return/exchange -> Assign box appears.
       const ap = e.target.closest('[data-ret-approve]');
       if (ap) {
         const id = ap.dataset.retApprove;
@@ -1466,25 +1533,25 @@
         ap.disabled = true; ap.textContent = 'Approving…';
         try {
           await fbPost({ action: 'update-return', returnId: id, status: 'Approved', resolution });
-          toast('Return approved · now assign a pickup partner');
-          loadReturns();
+          toast('Approved · now assign a pickup partner');
+          reload();
         } catch (err) { toast(err.message); ap.disabled = false; ap.textContent = '✅ Approve'; }
         return;
       }
       const rej = e.target.closest('[data-ret-reject]');
       if (rej) {
         const id = rej.dataset.retReject;
-        const note = prompt('Reason for rejecting this return (emailed to the customer):');
+        const note = prompt('Reason for rejecting (emailed to the customer):');
         if (note === null) return;
         try {
           await fbPost({ action: 'update-return', returnId: id, status: 'Rejected', admin_note: note });
-          toast('Return rejected · customer emailed');
-          loadReturns();
+          toast('Rejected · customer emailed');
+          reload();
         } catch (err) { toast(err.message); }
         return;
       }
 
-      // Gate 3: finalize -> auto refund (if customer saved UPI/bank) or same-day exchange.
+      // Gate 3 (returns only): finalize -> auto refund or same-day exchange.
       const fin = e.target.closest('[data-ret-finalize]');
       if (fin) {
         if (!confirm('Finalize this return? If the customer saved UPI/bank details it refunds in full; otherwise it schedules a same-day exchange.')) return;
@@ -1492,7 +1559,7 @@
         try {
           const d = await fbPost({ action: 'finalize-return', returnId: fin.dataset.retFinalize });
           toast(d.resolution === 'refund' ? 'Refund processed · customer emailed' : 'Same-day exchange scheduled · customer emailed');
-          loadReturns();
+          reload();
         } catch (err) { toast(err.message); fin.disabled = false; fin.textContent = '✅ Finalize (Gate 3) — refund / exchange'; }
         return;
       }
@@ -1501,21 +1568,21 @@
       if (!btn) return;
       const id = btn.dataset.retUpdate;
       const val = sel => (document.querySelector(`[data-ret-${sel}="${id}"]`) || {}).value || '';
-      const status = val('status');
+      const status = val('status') || undefined;   // exchange cards have no status dropdown
       if (status === 'Refunded' && !val('amount')) { toast('Enter the refund amount.'); return; }
       btn.disabled = true; btn.textContent = 'Saving…';
       try {
-        await fbPost({
-          action: 'update-return', returnId: id, status, resolution: val('resolution'),
-          admin_note: val('note').trim(), refund_amount: val('amount').trim(), refund_method: val('method').trim()
-        });
-        toast('Return updated · customer emailed');
-        loadReturns();
+        const body = { action: 'update-return', returnId: id, admin_note: val('note').trim() };
+        if (status) { body.status = status; body.resolution = val('resolution'); body.refund_amount = val('amount').trim(); body.refund_method = val('method').trim(); }
+        await fbPost(body);
+        toast('Updated · customer emailed');
+        reload();
       } catch (err) {
         toast(err.message);
         btn.disabled = false; btn.innerHTML = '✉️ Update &amp; email customer';
       }
-    });
+    }
+    document.getElementById('returnsList').addEventListener('click', e => returnsClickHandler(e, loadReturns));
 
     /* ---------- Pickup partners ---------- */
     document.getElementById('pCreate').addEventListener('click', async () => {
@@ -1825,6 +1892,7 @@
         if (tab.dataset.tab === 'reviews') loadReviews();
         if (tab.dataset.tab === 'complaints') loadComplaints();
         if (tab.dataset.tab === 'returns') loadReturns();
+        if (tab.dataset.tab === 'exchanges') loadExchanges();
         if (tab.dataset.tab === 'products') loadProducts();
         updateExportLabel();
       });
