@@ -233,6 +233,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="orders">My Orders</button>
       <button class="tab" data-tab="addresses">My Addresses</button>
+      <button class="tab" data-tab="refund">Refund Details</button>
     </div>
 
     <section class="panel active" id="panel-orders">
@@ -261,6 +262,33 @@
       </div>
       <div id="addrList"><div class="state">Loading your addresses…</div></div>
       <p style="font-size:12px;color:var(--muted)">Saved addresses appear at checkout — tap one there to fill the delivery form instantly.</p>
+    </section>
+
+    <section class="panel" id="panel-refund">
+      <div class="addr-form" style="display:block">
+        <h3>Refund details</h3>
+        <p style="font-size:12px;color:var(--muted);margin:-4px 0 12px">Where we send refunds for approved returns. <b>If this is empty, an approved return is resolved as a same-day exchange of the same product instead of a refund.</b></p>
+        <div class="form-err" id="refundErr"></div>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button type="button" class="btn-ghost" id="rmUpiBtn" data-rm="upi">UPI ID</button>
+          <button type="button" class="btn-ghost" id="rmBankBtn" data-rm="bank">Bank account</button>
+        </div>
+        <div id="rmUpiForm" style="display:none">
+          <label for="rmUpi">UPI ID</label>
+          <input id="rmUpi" type="text" placeholder="e.g. yourname@okhdfcbank" autocapitalize="off" spellcheck="false">
+        </div>
+        <div id="rmBankForm" style="display:none">
+          <div class="form-grid">
+            <div><label for="rmAcc">Account number</label><input id="rmAcc" type="text" inputmode="numeric"></div>
+            <div><label for="rmIfsc">IFSC code</label><input id="rmIfsc" type="text" autocapitalize="characters" placeholder="e.g. HDFC0001234"></div>
+            <div class="full"><label for="rmHolder">Account holder name</label><input id="rmHolder" type="text"></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button class="btn-primary" id="rmSaveBtn">Save refund details</button>
+        </div>
+        <div id="rmCurrent" style="font-size:12px;color:var(--muted);margin-top:12px"></div>
+      </div>
     </section>
   </main>
 
@@ -773,7 +801,58 @@
         tab.classList.add('active');
         document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
         if (tab.dataset.tab === 'addresses') loadAddresses();
+        if (tab.dataset.tab === 'refund') loadRefund();
       });
+    });
+
+    /* ---------- Refund details (UPI / bank) ---------- */
+    let rmMode = 'upi';
+    function setRmMode(mode) {
+      rmMode = mode;
+      document.getElementById('rmUpiForm').style.display = mode === 'upi' ? 'block' : 'none';
+      document.getElementById('rmBankForm').style.display = mode === 'bank' ? 'block' : 'none';
+      document.getElementById('rmUpiBtn').classList.toggle('btn-primary', mode === 'upi');
+      document.getElementById('rmBankBtn').classList.toggle('btn-primary', mode === 'bank');
+    }
+    document.getElementById('rmUpiBtn').addEventListener('click', () => setRmMode('upi'));
+    document.getElementById('rmBankBtn').addEventListener('click', () => setRmMode('bank'));
+
+    async function loadRefund() {
+      const cur = document.getElementById('rmCurrent');
+      try {
+        const { data } = await custApi({ action: 'get-refund-method' });
+        const r = data.refund || {};
+        setRmMode(r.refund_method === 'bank' ? 'bank' : 'upi');
+        document.getElementById('rmUpi').value = r.refund_upi || '';
+        document.getElementById('rmAcc').value = r.bank_account || '';
+        document.getElementById('rmIfsc').value = r.bank_ifsc || '';
+        document.getElementById('rmHolder').value = r.bank_holder || '';
+        cur.innerHTML = r.refund_method
+          ? `✅ On file: ${r.refund_method === 'upi' ? 'UPI ' + esc(r.refund_upi) : 'Bank a/c ••••' + esc(String(r.bank_account || '').slice(-4)) + ' · ' + esc(r.bank_ifsc)}`
+          : '⚠️ No refund details saved — approved returns will be exchanged instead of refunded.';
+      } catch (e) { cur.textContent = ''; }
+    }
+
+    document.getElementById('rmSaveBtn').addEventListener('click', async () => {
+      const errBox = document.getElementById('refundErr');
+      errBox.style.display = 'none';
+      const btn = document.getElementById('rmSaveBtn');
+      const body = { action: 'save-refund-method', method: rmMode };
+      if (rmMode === 'upi') body.refund_upi = document.getElementById('rmUpi').value.trim();
+      else {
+        body.bank_account = document.getElementById('rmAcc').value.trim();
+        body.bank_ifsc = document.getElementById('rmIfsc').value.trim();
+        body.bank_holder = document.getElementById('rmHolder').value.trim();
+      }
+      btn.disabled = true;
+      try {
+        const { res, data } = await custApi(body);
+        if (!res.ok) throw new Error(data.error || 'Could not save.');
+        toast('Refund details saved');
+        loadRefund();
+      } catch (e) {
+        errBox.textContent = e.message; errBox.style.display = 'block';
+      } finally { btn.disabled = false; }
     });
 
     /* ---------- Boot: confirm the session is still valid ---------- */

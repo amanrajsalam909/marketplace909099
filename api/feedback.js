@@ -6,7 +6,11 @@ const { findSession, getToken, newSessionToken, hashToken } = require('../lib/se
 const { hashPassword, verifyPassword } = require('../lib/password');
 const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
 const cloudinary = require('../lib/cloudinary');
+const { archiveReturnPhotos } = require('../lib/return-archive');
 const crypto = require('crypto');
+
+// Terminal states whose photos should be archived to Drive + purged off Cloudinary.
+const TERMINAL_RETURN_STATUSES = ['Refunded', 'Rejected', 'Exchanged', 'QC failed'];
 
 const QC_SLOTS = ['top', 'bottom', 'left', 'right'];
 
@@ -171,7 +175,17 @@ module.exports = async (req, res) => {
           .from('return_requests')
           .select('*, vendors(name), return_partners(name)')
           .order('created_at', { ascending: false }).limit(200);
-        return res.json(data || []);
+        const rows = data || [];
+        // Attach QC photos (live or archived) so admin can review at Gate 3.
+        const ids = rows.map(r => r.order_id);
+        if (ids.length) {
+          const { data: photos } = await supabase
+            .from('return_photos').select('order_id, product_id, slot, url, archived_at').in('order_id', ids);
+          const byOrder = {};
+          (photos || []).forEach(p => { (byOrder[p.order_id] = byOrder[p.order_id] || []).push(p); });
+          rows.forEach(r => { r.photos = byOrder[r.order_id] || []; });
+        }
+        return res.json(rows);
       }
       // Admin: the roster of pickup partners (never expose password_hash).
       if (req.query.partners) {
@@ -485,6 +499,8 @@ module.exports = async (req, res) => {
           const { data: r } = await supabase
             .from('return_requests').update(upd).eq('id', ret.id).select('*').single();
           if (r && r.email) sendReturnUpdate(r.email, r).catch(() => {});
+          // QC fail closes the case (item goes back) -> archive the evidence.
+          if (!pass) await archiveReturnPhotos(ret.order_id).catch(() => {});
           return res.json({ success: true, qc_status: upd.qc_status });
         }
 
@@ -554,7 +570,60 @@ module.exports = async (req, res) => {
           if (rpcErr) throw rpcErr;
         }
         if (r && r.email) sendReturnUpdate(r.email, r).catch(() => {});
+        // Closing the case -> archive photos to Drive + purge Cloudinary.
+        if (r && TERMINAL_RETURN_STATUSES.includes(req.body.status)) {
+          await archiveReturnPhotos(r.order_id).catch(() => {});
+        }
         return res.json({ success: true });
+      }
+
+      // ----- Gate 3: admin finalizes a picked-up return -----
+      // Auto-branches: refund if the customer saved UPI/bank details, else a
+      // same-day exchange. Full refund (free pickup, no deduction — policy).
+      if (action === 'finalize-return') {
+        const { data: ret } = await supabase
+          .from('return_requests')
+          .select('id, order_id, status, qc_status, email, phone')
+          .eq('id', req.body.returnId).maybeSingle();
+        if (!ret) return res.status(404).json({ error: 'Return not found.' });
+        if (ret.status !== 'Picked up') return res.status(400).json({ error: 'The item must be picked up before finalizing.' });
+
+        // Gate 2 must be satisfied if any item required photo QC.
+        const flagged = await flaggedProductsByOrder([ret.order_id]);
+        if ((flagged[ret.order_id] || []).length && ret.qc_status !== 'passed') {
+          return res.status(400).json({ error: 'Photo QC has not passed yet — cannot finalize.' });
+        }
+
+        const { data: cust } = await supabase
+          .from('customers').select('refund_upi, bank_account, bank_ifsc, bank_holder')
+          .eq('phone', ret.phone).maybeSingle();
+        const hasUpi = cust && cust.refund_upi;
+        const hasBank = cust && cust.bank_account && cust.bank_ifsc;
+
+        let upd;
+        if (hasUpi || hasBank) {
+          const { data: ord } = await supabase
+            .from('orders').select('total').eq('order_id', ret.order_id).maybeSingle();
+          const method = hasUpi ? `UPI: ${cust.refund_upi}` : `Bank: ${cust.bank_account} / ${cust.bank_ifsc}`;
+          ({ data: upd } = await supabase.from('return_requests').update({
+            status: 'Refunded', resolution: 'refund',
+            refund_amount: ord ? ord.total : null, refund_method: method,
+            updated_at: new Date().toISOString()
+          }).eq('id', ret.id).select('*').single());
+          const { error: rpcErr } = await supabase.rpc('process_return_refund', { p_order_id: ret.order_id });
+          if (rpcErr) throw rpcErr;
+        } else {
+          ({ data: upd } = await supabase.from('return_requests').update({
+            status: 'Exchange scheduled', resolution: 'exchange',
+            admin_note: 'No refund details on file — same-day exchange of the same product.',
+            updated_at: new Date().toISOString()
+          }).eq('id', ret.id).select('*').single());
+        }
+        if (upd && upd.email) sendReturnUpdate(upd.email, upd).catch(() => {});
+        if (upd && TERMINAL_RETURN_STATUSES.includes(upd.status)) {
+          await archiveReturnPhotos(ret.order_id).catch(() => {});
+        }
+        return res.json({ success: true, resolution: upd ? upd.resolution : null, status: upd ? upd.status : null });
       }
 
       // ----- Pickup partner roster (admin) -----

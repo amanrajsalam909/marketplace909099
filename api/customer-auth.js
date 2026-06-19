@@ -170,6 +170,53 @@ module.exports = async (req, res) => {
       return res.json({ success: true, addresses: book });
     }
 
+    // ----- Refund destination (used to decide refund vs same-day exchange) -----
+    if (action === 'get-refund-method') {
+      const session = await validateCustomerSession(token);
+      if (!session) return res.status(401).json({ error: 'Session expired — please sign in again.' });
+      const { data } = await supabase
+        .from('customers')
+        .select('refund_method, refund_upi, bank_account, bank_ifsc, bank_holder')
+        .eq('phone', session.phone).maybeSingle();
+      return res.json({ refund: data || {} });
+    }
+
+    if (action === 'save-refund-method') {
+      const session = await validateCustomerSession(token);
+      if (!session) return res.status(401).json({ error: 'Session expired — please sign in again.' });
+      const method = req.body.method === 'bank' ? 'bank' : (req.body.method === 'upi' ? 'upi' : '');
+      if (!method) return res.status(400).json({ error: 'Choose UPI or bank.' });
+
+      const fields = { refund_method: method, refund_upi: null, bank_account: null, bank_ifsc: null, bank_holder: null };
+      if (method === 'upi') {
+        const upi = String(req.body.refund_upi || '').trim().slice(0, 80);
+        if (!/^[\w.\-]{2,}@[a-zA-Z]{2,}$/.test(upi)) return res.status(400).json({ error: 'Enter a valid UPI ID (e.g. name@bank).' });
+        fields.refund_upi = upi;
+      } else {
+        const acc = String(req.body.bank_account || '').replace(/\s/g, '').slice(0, 30);
+        const ifsc = String(req.body.bank_ifsc || '').trim().toUpperCase().slice(0, 11);
+        const holder = String(req.body.bank_holder || '').trim().slice(0, 80);
+        if (!/^\d{6,18}$/.test(acc)) return res.status(400).json({ error: 'Enter a valid bank account number.' });
+        if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) return res.status(400).json({ error: 'Enter a valid IFSC code.' });
+        if (!holder) return res.status(400).json({ error: 'Enter the account holder name.' });
+        fields.bank_account = acc; fields.bank_ifsc = ifsc; fields.bank_holder = holder;
+      }
+
+      const { data: cust } = await supabase
+        .from('customers').select('id').eq('phone', session.phone).maybeSingle();
+      if (cust) {
+        const { error } = await supabase.from('customers').update(fields).eq('phone', session.phone);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('customers').insert({
+          phone: session.phone, email: session.email, name: session.name || '',
+          total_orders: 0, total_spent: 0, ...fields
+        });
+        if (error) throw error;
+      }
+      return res.json({ success: true, refund: fields });
+    }
+
     if (action === 'logout') {
       await deleteSession('customer_sessions', token);
       return res.json({ success: true });
