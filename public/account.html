@@ -384,8 +384,10 @@
 
     const RET_BADGE = {
       'Requested': 'background:#fef3c7;color:#92400e', 'Approved': 'background:#dbeafe;color:#1e40af',
-      'Rejected': 'background:#fee2e2;color:#991b1b', 'Picked up': 'background:#e0e7ff;color:#3730a3',
-      'Refunded': 'background:#d1fae5;color:#065f46'
+      'Rejected': 'background:#fee2e2;color:#991b1b', 'Assigned': 'background:#ede9fe;color:#5b21b6',
+      'Picked up': 'background:#e0e7ff;color:#3730a3', 'QC failed': 'background:#fee2e2;color:#991b1b',
+      'Refunded': 'background:#d1fae5;color:#065f46',
+      'Exchange scheduled': 'background:#dbeafe;color:#1e40af', 'Exchanged': 'background:#d1fae5;color:#065f46'
     };
     function returnBlock(r) {
       const badge = RET_BADGE[r.status] || RET_BADGE['Requested'];
@@ -396,6 +398,13 @@
             <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;${badge}">${esc(r.status)}</span>
           </div>
           <div style="font-size:12px;color:var(--muted);margin-top:3px">Reason: ${esc(r.reason)}</div>
+          ${r.status === 'Assigned' && r.pickup_otp ? `
+            <div style="margin:10px 0 2px;text-align:center;border:2px dashed var(--primary);border-radius:10px;padding:12px;background:#fff7ed">
+              <div style="font-size:12px;font-weight:700;color:var(--dark)">📦 Pickup code</div>
+              <div style="font-size:30px;font-weight:800;letter-spacing:8px;color:var(--primary)">${esc(r.pickup_otp)}</div>
+              <button type="button" data-copy-otp="${esc(r.pickup_otp)}" style="margin-top:8px;border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">Copy code</button>
+              <div style="font-size:11px;color:var(--muted);margin-top:8px">Give this to the pickup partner <b>only when handing over the item</b>.</div>
+            </div>` : ''}
           ${r.admin_note ? `<div style="font-size:12px;color:var(--text);margin-top:6px;white-space:pre-wrap"><b>Update:</b> ${esc(r.admin_note)}</div>` : ''}
           ${r.status === 'Refunded' && r.refund_amount != null ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px">💸 Refunded ${inr(r.refund_amount)}${r.refund_method ? ' via ' + esc(r.refund_method) : ''}</div>` : ''}
         </div>`;

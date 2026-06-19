@@ -400,8 +400,20 @@
     <!-- RETURNS -->
     <section class="panel" id="panel-returns">
       <div class="card">
+        <h3>📦 Pickup partners</h3>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Named partners who collect returns. Each signs in at <b>/return-partner.html</b> with their own login id &amp; password.</p>
+        <div class="form-grid">
+          <div><label>Name</label><input id="pNewName" type="text" placeholder="e.g. Ramesh"></div>
+          <div><label>Login ID</label><input id="pNewLogin" type="text" autocapitalize="off" placeholder="e.g. ramesh1"></div>
+          <div><label>Phone</label><input id="pNewPhone" type="text" placeholder="10-digit"></div>
+          <div><label>Password</label><input id="pNewPass" type="text" placeholder="6+ characters"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="pCreate" style="margin-top:8px">➕ Add partner</button>
+        <div id="partnersList" style="margin-top:14px"><div class="state">Loading…</div></div>
+      </div>
+      <div class="card">
         <h3>↩️ Returns</h3>
-        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Approve or reject return requests, mark pickup, and record the refund. The customer is emailed at every step.</p>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Approve, pick a refund/exchange resolution, assign a pickup partner (this generates the customer's pickup code), then record the refund. The customer is emailed at every step.</p>
         <div id="returnsList"><div class="state">Loading…</div></div>
       </div>
     </section>
@@ -1320,32 +1332,83 @@
     });
 
     /* ---------- Returns ---------- */
-    const RET_STATUSES = ['Requested', 'Approved', 'Rejected', 'Picked up', 'Refunded'];
+    const RET_STATUSES = ['Requested', 'Approved', 'Rejected', 'Assigned', 'Picked up', 'QC failed', 'Refunded', 'Exchange scheduled', 'Exchanged'];
     const RET_BADGE = {
       'Requested': 'background:#fef3c7;color:#92400e', 'Approved': 'background:#dbeafe;color:#1e40af',
-      'Rejected': 'background:#fee2e2;color:#991b1b', 'Picked up': 'background:#e0e7ff;color:#3730a3',
-      'Refunded': 'background:#d1fae5;color:#065f46'
+      'Rejected': 'background:#fee2e2;color:#991b1b', 'Assigned': 'background:#ede9fe;color:#5b21b6',
+      'Picked up': 'background:#e0e7ff;color:#3730a3', 'QC failed': 'background:#fee2e2;color:#991b1b',
+      'Refunded': 'background:#d1fae5;color:#065f46',
+      'Exchange scheduled': 'background:#dbeafe;color:#1e40af', 'Exchanged': 'background:#d1fae5;color:#065f46'
     };
+    let lastPartners = [];
+
+    async function loadPartners() {
+      try {
+        lastPartners = await api(`/api/feedback?partners=1`);
+        const el = document.getElementById('partnersList');
+        if (!lastPartners.length) { el.innerHTML = '<div class="state">No pickup partners yet — add one above.</div>'; return; }
+        el.innerHTML = lastPartners.map(p => `
+          <div class="list-row" style="align-items:center">
+            <div class="row-info">
+              <div class="row-title">${esc(p.name)}
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${p.active ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b'}">${p.active ? 'Active' : 'Disabled'}</span>
+              </div>
+              <div class="row-sub">id: <b>${esc(p.login_id)}</b>${p.phone ? ' · 📞 ' + esc(p.phone) : ''}</div>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-outline btn-sm" data-p-pass="${p.id}">Reset password</button>
+              <button class="btn btn-outline btn-sm" data-p-toggle="${p.id}" data-active="${p.active}">${p.active ? 'Disable' : 'Enable'}</button>
+            </div>
+          </div>`).join('');
+      } catch (e) {
+        document.getElementById('partnersList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
     async function loadReturns() {
       try {
-        const list = await api(`/api/feedback?returns=1`);
+        const [list] = await Promise.all([api(`/api/feedback?returns=1`), loadPartners()]);
         lastReturns = list;
+        const partnerOpts = lastPartners.filter(p => p.active);
         const el = document.getElementById('returnsList');
         if (!list.length) { el.innerHTML = '<div class="state">No return requests. 🎉</div>'; return; }
-        el.innerHTML = list.map(r => `
+        el.innerHTML = list.map(r => {
+          const partnerName = (r.return_partners || {}).name || '';
+          const canAssign = ['Approved', 'Assigned'].includes(r.status);
+          return `
           <div class="list-row" style="align-items:flex-start">
             <div class="row-info">
               <div class="row-title">${esc(r.order_id)}
                 <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${RET_BADGE[r.status] || RET_BADGE['Requested']}">${esc(r.status)}</span>
+                ${r.resolution ? `<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:4px;${r.resolution === 'refund' ? 'background:#d1fae5;color:#065f46' : 'background:#dbeafe;color:#1e40af'}">${r.resolution === 'refund' ? '💸 Refund' : '🔁 Exchange'}</span>` : ''}
               </div>
               <div class="row-sub">${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} (${esc(r.email || '')}) · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
               <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
+              ${partnerName ? `<div style="font-size:12px;color:var(--text);margin-top:4px">📦 Partner: <b>${esc(partnerName)}</b></div>` : ''}
               ${r.status === 'Refunded' && r.refund_amount != null ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:4px">💸 Refunded ${inr(r.refund_amount)}${r.refund_method ? ' via ' + esc(r.refund_method) : ''}</div>` : ''}
             </div>
             <div style="flex-basis:100%;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px">
+              ${canAssign ? `
+              <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+                <label style="margin:0 0 5px">Assign pickup partner ${r.status === 'Assigned' ? '(re-assign generates a fresh code)' : '— generates the customer\\'s pickup code'}</label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <select data-ret-partner="${r.id}" style="flex:1;min-width:160px">
+                    <option value="">— choose partner —</option>
+                    ${partnerOpts.map(p => `<option value="${p.id}" ${r.assigned_partner_id === p.id ? 'selected' : ''}>${esc(p.name)} (${esc(p.login_id)})</option>`).join('')}
+                  </select>
+                  <button class="btn btn-primary btn-sm" data-ret-assign="${r.id}">📦 Assign &amp; send code</button>
+                </div>
+              </div>` : ''}
               <div class="form-grid">
                 <div><label>Status</label>
                   <select data-ret-status="${r.id}">${RET_STATUSES.map(s => `<option ${r.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+                </div>
+                <div><label>Resolution</label>
+                  <select data-ret-resolution="${r.id}">
+                    <option value="">— not set —</option>
+                    <option value="refund" ${r.resolution === 'refund' ? 'selected' : ''}>Refund</option>
+                    <option value="exchange" ${r.resolution === 'exchange' ? 'selected' : ''}>Exchange</option>
+                  </select>
                 </div>
                 <div><label>Refund amount (₹)</label><input data-ret-amount="${r.id}" type="number" min="0" step="0.01" value="${r.refund_amount != null ? r.refund_amount : ''}" placeholder="only when refunding"></div>
                 <div><label>Refund method</label><input data-ret-method="${r.id}" type="text" value="${esc(r.refund_method || '')}" placeholder="Cash / UPI"></div>
@@ -1354,13 +1417,29 @@
               <textarea data-ret-note="${r.id}" rows="2" placeholder="Emailed to the customer with this update">${esc(r.admin_note || '')}</textarea>
               <button class="btn btn-primary btn-sm" data-ret-update="${r.id}" style="margin-top:8px">✉️ Update &amp; email customer</button>
             </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
       } catch (e) {
         document.getElementById('returnsList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
       }
     }
 
     document.getElementById('returnsList').addEventListener('click', async e => {
+      // Assign a pickup partner -> generates the customer's pickup code.
+      const assign = e.target.closest('[data-ret-assign]');
+      if (assign) {
+        const id = assign.dataset.retAssign;
+        const partnerId = (document.querySelector(`[data-ret-partner="${id}"]`) || {}).value || '';
+        if (!partnerId) { toast('Choose a partner first.'); return; }
+        assign.disabled = true; assign.textContent = 'Assigning…';
+        try {
+          await fbPost({ action: 'assign-partner', returnId: id, partnerId });
+          toast('Partner assigned · pickup code now in the customer profile');
+          loadReturns();
+        } catch (err) { toast(err.message); assign.disabled = false; assign.innerHTML = '📦 Assign &amp; send code'; }
+        return;
+      }
+
       const btn = e.target.closest('[data-ret-update]');
       if (!btn) return;
       const id = btn.dataset.retUpdate;
@@ -1370,7 +1449,7 @@
       btn.disabled = true; btn.textContent = 'Saving…';
       try {
         await fbPost({
-          action: 'update-return', returnId: id, status,
+          action: 'update-return', returnId: id, status, resolution: val('resolution'),
           admin_note: val('note').trim(), refund_amount: val('amount').trim(), refund_method: val('method').trim()
         });
         toast('Return updated · customer emailed');
@@ -1379,6 +1458,40 @@
         toast(err.message);
         btn.disabled = false; btn.innerHTML = '✉️ Update &amp; email customer';
       }
+    });
+
+    /* ---------- Pickup partners ---------- */
+    document.getElementById('pCreate').addEventListener('click', async () => {
+      const name = document.getElementById('pNewName').value.trim();
+      const loginId = document.getElementById('pNewLogin').value.trim();
+      const phone = document.getElementById('pNewPhone').value.trim();
+      const password = document.getElementById('pNewPass').value;
+      if (!name || !loginId || password.length < 6) { toast('Name, login id and a 6+ char password are required.'); return; }
+      try {
+        await fbPost({ action: 'create-partner', name, loginId, phone, password });
+        toast('Partner added');
+        ['pNewName', 'pNewLogin', 'pNewPhone', 'pNewPass'].forEach(i => document.getElementById(i).value = '');
+        loadPartners();
+      } catch (err) { toast(err.message); }
+    });
+
+    document.getElementById('partnersList').addEventListener('click', async e => {
+      const pass = e.target.closest('[data-p-pass]');
+      const toggle = e.target.closest('[data-p-toggle]');
+      try {
+        if (pass) {
+          const pw = prompt('New password for this partner (6+ characters):');
+          if (pw === null) return;
+          if (pw.length < 6) { toast('Password must be 6+ characters.'); return; }
+          await fbPost({ action: 'update-partner', partnerId: pass.dataset.pPass, password: pw });
+          toast('Password updated');
+        } else if (toggle) {
+          const makeActive = toggle.dataset.active !== 'true';
+          await fbPost({ action: 'update-partner', partnerId: toggle.dataset.pToggle, active: makeActive });
+          toast(makeActive ? 'Partner enabled' : 'Partner disabled');
+          loadPartners();
+        }
+      } catch (err) { toast(err.message); }
     });
 
     /* ---------- Settings ---------- */
