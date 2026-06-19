@@ -1429,6 +1429,8 @@
               <label style="margin-top:10px">Note to customer (reject reason / pickup info)</label>
               <textarea data-ret-note="${r.id}" rows="2" placeholder="Emailed to the customer with this update">${esc(r.admin_note || '')}</textarea>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                ${r.status === 'Requested' ? `<button class="btn btn-sm" data-ret-approve="${r.id}" style="background:var(--green);color:#fff">✅ Approve</button>
+                <button class="btn btn-sm" data-ret-reject="${r.id}" style="background:#fff;color:var(--red);border:1px solid #fecaca">✖ Reject</button>` : ''}
                 <button class="btn btn-primary btn-sm" data-ret-update="${r.id}">✉️ Update &amp; email customer</button>
                 ${r.status === 'Picked up' ? `<button class="btn btn-sm" data-ret-finalize="${r.id}" style="background:var(--green);color:#fff">✅ Finalize (Gate 3) — refund / exchange</button>` : ''}
               </div>
@@ -1453,6 +1455,32 @@
           toast('Partner assigned · pickup code now in the customer profile');
           loadReturns();
         } catch (err) { toast(err.message); assign.disabled = false; assign.innerHTML = '📦 Assign &amp; send code'; }
+        return;
+      }
+
+      // Approve a requested return (keeps any chosen resolution) -> Assign box appears.
+      const ap = e.target.closest('[data-ret-approve]');
+      if (ap) {
+        const id = ap.dataset.retApprove;
+        const resolution = (document.querySelector(`[data-ret-resolution="${id}"]`) || {}).value || '';
+        ap.disabled = true; ap.textContent = 'Approving…';
+        try {
+          await fbPost({ action: 'update-return', returnId: id, status: 'Approved', resolution });
+          toast('Return approved · now assign a pickup partner');
+          loadReturns();
+        } catch (err) { toast(err.message); ap.disabled = false; ap.textContent = '✅ Approve'; }
+        return;
+      }
+      const rej = e.target.closest('[data-ret-reject]');
+      if (rej) {
+        const id = rej.dataset.retReject;
+        const note = prompt('Reason for rejecting this return (emailed to the customer):');
+        if (note === null) return;
+        try {
+          await fbPost({ action: 'update-return', returnId: id, status: 'Rejected', admin_note: note });
+          toast('Return rejected · customer emailed');
+          loadReturns();
+        } catch (err) { toast(err.message); }
         return;
       }
 
