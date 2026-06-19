@@ -6,11 +6,10 @@ const { findSession, getToken, newSessionToken, hashToken } = require('../lib/se
 const { hashPassword, verifyPassword } = require('../lib/password');
 const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
 const cloudinary = require('../lib/cloudinary');
-const { archiveReturnPhotos } = require('../lib/return-archive');
 const crypto = require('crypto');
 
-// Terminal states whose photos should be archived to Drive + purged off Cloudinary.
-const TERMINAL_RETURN_STATUSES = ['Refunded', 'Rejected', 'Exchanged', 'QC failed'];
+// QC photos live on Cloudinary for the life of the case and stay there (no
+// Google Drive archival — per the chosen "Cloudinary only" storage policy).
 
 const QC_SLOTS = ['top', 'bottom', 'left', 'right'];
 
@@ -601,8 +600,6 @@ module.exports = async (req, res) => {
           const { data: r } = await supabase
             .from('return_requests').update(upd).eq('id', ret.id).select('*').single();
           if (r && r.email) sendReturnUpdate(r.email, r).catch(() => {});
-          // Terminal outcomes -> archive the QC photos to Drive + purge Cloudinary.
-          if (r && TERMINAL_RETURN_STATUSES.includes(r.status)) await archiveReturnPhotos(ret.order_id).catch(() => {});
           return res.json({ success: true, qc_status: upd.qc_status, status: upd.status || ret.status });
         }
 
@@ -714,10 +711,6 @@ module.exports = async (req, res) => {
           if (rpcErr) throw rpcErr;
         }
         if (r && r.email) sendReturnUpdate(r.email, r).catch(() => {});
-        // Closing the case -> archive photos to Drive + purge Cloudinary.
-        if (r && newStatus && TERMINAL_RETURN_STATUSES.includes(newStatus)) {
-          await archiveReturnPhotos(r.order_id).catch(() => {});
-        }
         return res.json({ success: true });
       }
 
@@ -765,9 +758,6 @@ module.exports = async (req, res) => {
           }).eq('id', ret.id).select('*').single());
         }
         if (upd && upd.email) sendReturnUpdate(upd.email, upd).catch(() => {});
-        if (upd && TERMINAL_RETURN_STATUSES.includes(upd.status)) {
-          await archiveReturnPhotos(ret.order_id).catch(() => {});
-        }
         return res.json({ success: true, resolution: upd ? upd.resolution : null, status: upd ? upd.status : null });
       }
 
