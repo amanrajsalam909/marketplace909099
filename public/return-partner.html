@@ -323,8 +323,8 @@
           <div class="dcard">
             <div class="dtop">
               <div>
-                <div class="oid">${esc(r.order_id)}</div>
-                <div class="shop">🏪 ${esc((o.vendors || {}).name || 'Shop')}</div>
+                <div class="oid">${isExchange && r.exchange_id ? esc(r.exchange_id) : esc(r.order_id)}</div>
+                <div class="shop">${isExchange && r.exchange_id ? 'order ' + esc(r.order_id) + ' · ' : ''}🏪 ${esc((o.vendors || {}).name || 'Shop')}</div>
                 <span class="restag ${resCls}">${resTxt}</span>
               </div>
               <div style="text-align:right">

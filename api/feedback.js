@@ -37,9 +37,19 @@ async function flaggedProductsByOrder(orderIds) {
 
 const RETURN_WINDOW_DAYS = 3;
 const RETURN_STATUSES = [
-  'Requested', 'Approved', 'Rejected', 'Assigned', 'Picked up',
+  'Requested', 'Approved', 'Rejected', 'Ready', 'Assigned', 'Picked up',
   'QC failed', 'Refunded', 'Exchange scheduled', 'Exchanged'
 ];
+
+// Unambiguous alphabet (no I/O/0/1) for human-readable Exchange IDs.
+function genExchangeId() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const d = new Date();
+  const ymd = String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  let tail = '';
+  for (let i = 0; i < 4; i++) tail += chars[crypto.randomInt(chars.length)];
+  return `EXC-${ymd}-${tail}`;
+}
 const PICKUP_OTP_TTL_MS = 24 * 60 * 60 * 1000;   // a pickup window is generous
 const MAX_PICKUP_OTP_ATTEMPTS = 5;
 const PARTNER_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -126,7 +136,7 @@ module.exports = async (req, res) => {
         if (!cs) return res.status(401).json({ error: 'Not logged in.' });
         const { data } = await supabase
           .from('return_requests')
-          .select('order_id, request_type, reason, status, resolution, admin_note, refund_amount, refund_method, picked_up_at, created_at, updated_at')
+          .select('order_id, exchange_id, request_type, reason, status, resolution, admin_note, refund_amount, refund_method, picked_up_at, created_at, updated_at')
           .eq('phone', cs.phone)
           .order('created_at', { ascending: false });
         const rows = data || [];
@@ -152,8 +162,32 @@ module.exports = async (req, res) => {
           .from('return_requests')
           .select('order_id, reason, status, admin_note, refund_amount, refund_method, created_at, updated_at')
           .eq('vendor_id', vs.vendor_id)
+          .eq('request_type', 'return')
           .order('created_at', { ascending: false }).limit(200);
         return res.json(data || []);
+      }
+
+      // Logged-in vendor: EXCHANGES to re-prepare for their shop. Each carries
+      // the Exchange ID and the original order's items (the products to remake).
+      if (req.query.vendorExchanges) {
+        const vs = await validateVendorSession(getToken(req));
+        if (!vs) return res.status(401).json({ error: 'Not logged in.' });
+        const { data: rows } = await supabase
+          .from('return_requests')
+          .select('id, order_id, exchange_id, reason, status, admin_note, created_at, updated_at')
+          .eq('vendor_id', vs.vendor_id)
+          .eq('request_type', 'exchange')
+          .order('created_at', { ascending: false }).limit(200);
+        const list = rows || [];
+        const ids = list.map(r => r.order_id);
+        if (ids.length) {
+          const { data: items } = await supabase
+            .from('order_items').select('order_id, product_id, product_name, qty').in('order_id', ids);
+          const byOrder = {};
+          (items || []).forEach(i => { (byOrder[i.order_id] = byOrder[i.order_id] || []).push(i); });
+          list.forEach(r => { r.items = byOrder[r.order_id] || []; });
+        }
+        return res.json(list);
       }
 
       // Admin: all reviews or all complaints
@@ -369,7 +403,7 @@ module.exports = async (req, res) => {
         if (action === 'rp-orders') {
           const { data: rets } = await supabase
             .from('return_requests')
-            .select('order_id, request_type, reason, resolution, status, qc_status, customer_name, phone, assigned_at')
+            .select('order_id, exchange_id, request_type, reason, resolution, status, qc_status, customer_name, phone, assigned_at')
             .eq('assigned_partner_id', partner.partner_id)
             .in('status', ['Assigned', 'Picked up'])
             .order('assigned_at', { ascending: true });
@@ -517,6 +551,25 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: 'Unknown action' });
       }
 
+      // ----- Vendor: mark an approved exchange's replacement prepared -----
+      if (action === 'vendor-exchange-ready') {
+        const vs = await validateVendorSession(getToken(req));
+        if (!vs) return res.status(401).json({ error: 'Please sign in again.' });
+        const { data: ret } = await supabase
+          .from('return_requests')
+          .select('id, status, request_type, vendor_id, email, order_id, exchange_id')
+          .eq('id', req.body.returnId).maybeSingle();
+        if (!ret || ret.vendor_id !== vs.vendor_id) return res.status(404).json({ error: 'Exchange not found for your shop.' });
+        if (ret.request_type !== 'exchange') return res.status(400).json({ error: 'That request is not an exchange.' });
+        if (ret.status !== 'Approved') return res.status(400).json({ error: 'This exchange is not awaiting preparation.' });
+        const { data: upd } = await supabase
+          .from('return_requests')
+          .update({ status: 'Ready', updated_at: new Date().toISOString() })
+          .eq('id', ret.id).select('*').single();
+        if (upd && upd.email) sendReturnUpdate(upd.email, upd).catch(() => {});
+        return res.json({ success: true });
+      }
+
       // ----- Admin moderation -----
       const session = await validateAdminSession(getToken(req));
       if (!session) return res.status(401).json({ error: 'Unauthorized' });
@@ -571,6 +624,12 @@ module.exports = async (req, res) => {
         if (newStatus) upd.status = newStatus;
         if (req.body.admin_note !== undefined) upd.admin_note = String(req.body.admin_note || '').trim().slice(0, 1000);
         if (req.body.resolution === 'refund' || req.body.resolution === 'exchange') upd.resolution = req.body.resolution;
+        // Approving an exchange mints its Exchange ID (the vendor prepares against it).
+        if (newStatus === 'Approved') {
+          const { data: cur } = await supabase
+            .from('return_requests').select('request_type, exchange_id').eq('id', req.body.returnId).maybeSingle();
+          if (cur && cur.request_type === 'exchange' && !cur.exchange_id) upd.exchange_id = genExchangeId();
+        }
         if (newStatus === 'Refunded') {
           upd.refund_amount = (req.body.refund_amount != null && req.body.refund_amount !== '') ? Number(req.body.refund_amount) : null;
           upd.refund_method = String(req.body.refund_method || '').trim().slice(0, 60);
@@ -678,10 +737,17 @@ module.exports = async (req, res) => {
       if (action === 'assign-partner') {
         const { returnId, partnerId } = req.body;
         const { data: ret } = await supabase
-          .from('return_requests').select('id, order_id, status, email').eq('id', returnId).maybeSingle();
+          .from('return_requests').select('id, order_id, status, request_type, email').eq('id', returnId).maybeSingle();
         if (!ret) return res.status(404).json({ error: 'Return not found.' });
-        if (!['Approved', 'Assigned'].includes(ret.status)) {
-          return res.status(400).json({ error: 'Approve the return before assigning a pickup partner.' });
+        // Exchanges can only be dispatched once the vendor has prepared the
+        // replacement (status 'Ready'); returns just need admin approval.
+        const ok = ret.request_type === 'exchange'
+          ? ['Ready', 'Assigned'].includes(ret.status)
+          : ['Approved', 'Assigned'].includes(ret.status);
+        if (!ok) {
+          return res.status(400).json({ error: ret.request_type === 'exchange'
+            ? 'The vendor must prepare the replacement (Ready) before assigning a pickup partner.'
+            : 'Approve the return before assigning a pickup partner.' });
         }
         const { data: partner } = await supabase
           .from('return_partners').select('id, active').eq('id', partnerId).maybeSingle();

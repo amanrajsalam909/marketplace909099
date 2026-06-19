@@ -1356,7 +1356,8 @@
     const RET_STATUSES = ['Requested', 'Approved', 'Rejected', 'Assigned', 'Picked up', 'QC failed', 'Refunded', 'Exchange scheduled', 'Exchanged'];
     const RET_BADGE = {
       'Requested': 'background:#fef3c7;color:#92400e', 'Approved': 'background:#dbeafe;color:#1e40af',
-      'Rejected': 'background:#fee2e2;color:#991b1b', 'Assigned': 'background:#ede9fe;color:#5b21b6',
+      'Rejected': 'background:#fee2e2;color:#991b1b', 'Ready': 'background:#fef9c3;color:#854d0e',
+      'Assigned': 'background:#ede9fe;color:#5b21b6',
       'Picked up': 'background:#e0e7ff;color:#3730a3', 'QC failed': 'background:#fee2e2;color:#991b1b',
       'Refunded': 'background:#d1fae5;color:#065f46',
       'Exchange scheduled': 'background:#dbeafe;color:#1e40af', 'Exchanged': 'background:#d1fae5;color:#065f46'
@@ -1464,16 +1465,17 @@
         if (!list.length) { el.innerHTML = '<div class="state">No exchange requests. 🎉</div>'; return; }
         el.innerHTML = list.map(r => {
           const partnerName = (r.return_partners || {}).name || '';
-          const canAssign = ['Approved', 'Assigned'].includes(r.status);
+          const canAssign = ['Ready', 'Assigned'].includes(r.status);
           return `
           <div class="list-row" style="align-items:flex-start">
             <div class="row-info">
-              <div class="row-title">${esc(r.order_id)}
+              <div class="row-title">${r.exchange_id ? '🔁 ' + esc(r.exchange_id) : esc(r.order_id)}
                 <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${RET_BADGE[r.status] || RET_BADGE['Requested']}">${esc(r.status)}</span>
               </div>
-              <div class="row-sub">${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} (${esc(r.email || '')}) · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
+              <div class="row-sub">order ${esc(r.order_id)} · ${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} (${esc(r.email || '')}) · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
               <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
               ${partnerName ? `<div style="font-size:12px;color:var(--text);margin-top:4px">📦 Partner: <b>${esc(partnerName)}</b></div>` : ''}
+              ${r.status === 'Approved' ? '<div style="font-size:12px;color:#854d0e;font-weight:600;margin-top:4px">⏳ Awaiting the vendor to prepare the replacement.</div>' : ''}
               ${r.qc_status ? `<div style="font-size:12px;margin-top:4px;font-weight:600;color:${r.qc_status === 'passed' ? 'var(--green)' : 'var(--red)'}">🔍 Photo QC: ${r.qc_status}</div>` : ''}
               ${(r.photos || []).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.photos.map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.slot)}"><img src="${esc(p.url)}" style="width:52px;height:52px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`).join('')}</div>` : ''}
               ${r.status === 'Exchanged' ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:4px">✅ Exchanged${r.picked_up_at ? ' on ' + new Date(r.picked_up_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''} — replacement handed over.</div>` : ''}
