@@ -318,7 +318,6 @@
           const isExchange = r.request_type === 'exchange';
           const resCls = isExchange ? 'res-exchange' : 'res-refund';
           const resTxt = isExchange ? '🔁 EXCHANGE' : '↩️ RETURN';
-          const phone = o.customer_phone || r.phone || '';
           return `
           <div class="dcard">
             <div class="dtop">
@@ -334,7 +333,7 @@
             <div class="reason"><b>Reason:</b> ${esc(r.reason)}</div>
             ${itemsLine ? `<div class="items">📦 ${itemsLine}</div>` : ''}
             <div class="addr">
-              <b>${esc(o.customer_name || r.customer_name || '')}</b>${phone ? ` · <a href="tel:${esc(phone)}">📞 ${esc(phone)}</a>` : ''}
+              <b>${esc(o.customer_name || r.customer_name || '')}</b> <span style="font-size:11px;color:var(--muted)">📞 number hidden for privacy</span>
               <div style="margin-top:6px">${addrHtml(o)}</div>
             </div>
             ${r.status === 'Assigned'

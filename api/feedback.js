@@ -474,7 +474,7 @@ module.exports = async (req, res) => {
         if (action === 'rp-orders') {
           const { data: rets } = await supabase
             .from('return_requests')
-            .select('order_id, exchange_id, request_type, reason, resolution, status, qc_status, customer_name, phone, assigned_at')
+            .select('order_id, exchange_id, request_type, reason, resolution, status, qc_status, customer_name, assigned_at')
             .eq('assigned_partner_id', partner.partner_id)
             .in('status', ['Assigned', 'Picked up'])
             .order('assigned_at', { ascending: true });
@@ -485,7 +485,7 @@ module.exports = async (req, res) => {
           if (ids.length) {
             const { data: ords } = await supabase
               .from('orders')
-              .select('order_id, customer_name, customer_phone, delivery_address, address_json, total, items_json, vendors(name)')
+              .select('order_id, customer_name, delivery_address, address_json, total, items_json, vendors(name)')
               .in('order_id', ids);
             (ords || []).forEach(o => { orders[o.order_id] = o; });
             flagged = await flaggedProductsByOrder(ids);
