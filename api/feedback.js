@@ -474,6 +474,13 @@ module.exports = async (req, res) => {
           .order('id', { ascending: false }).limit(1);
         return res.json({ room: offers && offers[0] ? offers[0].room : null });
       }
+      // ICE servers (STUN + TURN) for a call. Gated by room auth so TURN
+      // credentials only go to real call participants (TURN relays cost bandwidth).
+      if (action === 'call-ice-config') {
+        const who = await authCallRoom(req);
+        if (!who) return res.status(403).json({ error: 'Not allowed on this call.' });
+        return res.json({ iceServers: await iceServers() });
+      }
 
       // ----- Return pickup partner portal (return-partner.html) -----
       // Per-partner login (id + password). Throttled like the other password
@@ -998,4 +1005,60 @@ async function authCallRoom(req) {
     }
   }
   return null;
+}
+
+// Build the RTCPeerConnection iceServers list. Always free STUN; TURN is added
+// for whichever provider is configured via env (set one). TURN relays media so
+// calls connect even on symmetric-NAT mobile networks.
+async function iceServers() {
+  const list = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' }
+  ];
+
+  // Static TURN — self-hosted coturn or any fixed-credential TURN.
+  if (process.env.TURN_URLS) {
+    list.push({
+      urls: process.env.TURN_URLS.split(',').map(s => s.trim()).filter(Boolean),
+      username: process.env.TURN_USERNAME || '',
+      credential: process.env.TURN_CREDENTIAL || ''
+    });
+  }
+
+  // Cloudflare Realtime TURN (recommended free — 1000 GB/mo). Short-lived creds.
+  if (process.env.CLOUDFLARE_TURN_KEY_ID && process.env.CLOUDFLARE_TURN_API_TOKEN) {
+    try {
+      const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${process.env.CLOUDFLARE_TURN_KEY_ID}/credentials/generate-ice-servers`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_TURN_API_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ttl: 3600 })
+      });
+      const d = await r.json();
+      if (d && d.iceServers) list.push(d.iceServers);
+    } catch (_) { /* keep STUN-only */ }
+  }
+
+  // Generic credential URL that returns an iceServers array (Metered / Open Relay).
+  if (process.env.TURN_CREDENTIAL_URL) {
+    try {
+      const r = await fetch(process.env.TURN_CREDENTIAL_URL);
+      const d = await r.json();
+      if (Array.isArray(d)) d.forEach(s => list.push(s));
+      else if (d && Array.isArray(d.iceServers)) d.iceServers.forEach(s => list.push(s));
+    } catch (_) { /* keep STUN-only */ }
+  }
+
+  // Twilio Network Traversal Service.
+  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+    try {
+      const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+      const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Tokens.json`, {
+        method: 'POST', headers: { Authorization: `Basic ${auth}` }
+      });
+      const d = await r.json();
+      (d.ice_servers || []).forEach(s => list.push({ urls: s.urls || s.url, username: s.username, credential: s.credential }));
+    } catch (_) { /* keep STUN-only */ }
+  }
+
+  return list;
 }

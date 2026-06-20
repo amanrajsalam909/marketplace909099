@@ -81,7 +81,15 @@
     }
     if (st.ended) return;
 
-    st.pc = new RTCPeerConnection(STUN);
+    // Pull STUN + TURN from the server (TURN makes mobile networks reliable).
+    var iceCfg = STUN;
+    try {
+      var cfg = await signal('call-ice-config', { room: room });
+      if (cfg && Array.isArray(cfg.iceServers) && cfg.iceServers.length) iceCfg = { iceServers: cfg.iceServers };
+    } catch (e) { /* fall back to STUN-only */ }
+    if (st.ended) return;
+
+    st.pc = new RTCPeerConnection(iceCfg);
     st.stream.getTracks().forEach(function (t) { st.pc.addTrack(t, st.stream); });
     st.pc.onicecandidate = function (e) { if (e.candidate) st.signal('call-signal', { room: room, kind: 'ice', payload: e.candidate }); };
     st.pc.ontrack = function (e) { var au = document.getElementById('rmcall-audio'); if (au) au.srcObject = e.streams[0]; };
