@@ -697,6 +697,7 @@
           <div class="row-actions">
             <button class="btn btn-outline btn-sm" data-kyc="${v.id}">📋 KYC</button>
             <button class="btn btn-outline btn-sm" data-edit="${v.id}">Edit</button>
+            <button class="btn btn-outline btn-sm" data-vpass="${v.id}">🔑 Reset password</button>
             <button class="btn btn-outline btn-sm ${v.is_active ? 'danger' : ''}" data-toggle="${v.id}" data-active="${v.is_active}">
               ${v.is_active ? 'Suspend' : 'Activate'}
             </button>
@@ -736,6 +737,20 @@
     document.getElementById('vendorsList').addEventListener('click', async e => {
       const kyc = e.target.closest('[data-kyc]');
       if (kyc) { openAgreement(kyc.dataset.kyc); return; }
+
+      // One-click vendor password reset.
+      const vpass = e.target.closest('[data-vpass]');
+      if (vpass) {
+        const v = vendors.find(x => x.id === vpass.dataset.vpass);
+        const pw = prompt('New login password for ' + (v ? v.name : 'this vendor') + ' (min 6 characters):');
+        if (pw === null) return;
+        if (pw.trim().length < 6) { toast('Password must be at least 6 characters.'); return; }
+        try {
+          await apiPost({ action: 'reset-vendor-password', vendorId: vpass.dataset.vpass, password: pw.trim() });
+          toast('Password reset — share it with the vendor.');
+        } catch (err) { toast(err.message); }
+        return;
+      }
 
       const edit = e.target.closest('[data-edit]');
       const tgl = e.target.closest('[data-toggle]');
