@@ -1449,10 +1449,12 @@
               <div class="row-sub">${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} (${esc(r.email || '')})</div>
               <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
               ${r.status === 'Refunded' && r.refund_amount != null ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px">💸 Refunded ${inr(r.refund_amount)}${r.refund_method ? ' via ' + esc(r.refund_method) : ''}</div>` : ''}
+              ${r.status === 'Refunded' && r.refund_receipt_url ? `<div style="font-size:12px;margin-top:4px"><a href="${esc(r.refund_receipt_url)}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600;text-decoration:none">🧾 View transaction receipt</a></div>` : ''}
             </div>
             ${awaiting ? `<div style="flex-basis:100%;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px">
-              <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Item received back. Refund goes to the customer's saved UPI/bank (full order value).</div>
-              <button class="btn btn-sm" data-refund="${r.id}" style="background:var(--green);color:#fff">💸 Process refund</button>
+              <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Pay the customer's saved UPI/bank (full order value), then <b>attach the transaction receipt</b> (image or PDF). It's saved to Google Drive — the refund completes only if the upload succeeds.</div>
+              <input type="file" accept="image/*,application/pdf" data-receipt-file="${r.id}" style="display:block;margin-bottom:8px;font-size:13px">
+              <button class="btn btn-sm" data-refund="${r.id}" style="background:var(--green);color:#fff">🧾 Upload receipt &amp; mark refunded</button>
             </div>` : ''}
           </div>`;
         }).join('');
@@ -1463,13 +1465,24 @@
     document.getElementById('refundsList').addEventListener('click', async e => {
       const btn = e.target.closest('[data-refund]');
       if (!btn) return;
-      if (!confirm('Process the full refund to the customer\'s saved UPI/bank details?')) return;
-      btn.disabled = true; btn.textContent = 'Processing…';
+      const id = btn.dataset.refund;
+      const fileInput = document.querySelector(`[data-receipt-file="${id}"]`);
+      const file = fileInput && fileInput.files && fileInput.files[0];
+      if (!file) { toast('Attach the transaction receipt first.'); return; }
+      if (file.size > 4 * 1024 * 1024) { toast('Receipt too large (max 4 MB).'); return; }
+      if (!confirm('Save the receipt to Google Drive and mark this refund done?')) return;
+      btn.disabled = true; btn.textContent = 'Uploading…';
       try {
-        const d = await fbPost({ action: 'process-refund', returnId: btn.dataset.refund });
-        toast('Refund processed via ' + (d.refund_method || 'saved details') + ' · customer emailed');
+        const dataUrl = await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result); fr.onerror = () => reject(new Error('Could not read the file.'));
+          fr.readAsDataURL(file);
+        });
+        const base64 = String(dataUrl).split(',')[1];
+        await fbPost({ action: 'process-refund', returnId: id, receipt: { filename: file.name, mimeType: file.type, data: base64 } });
+        toast('Receipt saved to Drive · refund done · customer emailed');
         loadRefunds();
-      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = '💸 Process refund'; }
+      } catch (err) { toast(err.message); btn.disabled = false; btn.innerHTML = '🧾 Upload receipt &amp; mark refunded'; }
     });
 
     /* ---------- Exchanges (same-product swap; partner completes at the door) ---------- */

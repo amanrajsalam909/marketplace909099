@@ -6,7 +6,11 @@ const { findSession, getToken, newSessionToken, hashToken } = require('../lib/se
 const { hashPassword, verifyPassword } = require('../lib/password');
 const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
 const cloudinary = require('../lib/cloudinary');
+const { uploadBinaryFile } = require('../lib/drive');
 const crypto = require('crypto');
+
+const RECEIPT_MAX_BYTES = 4 * 1024 * 1024;   // raw file cap (stays under Vercel's body limit)
+const RECEIPT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'];
 
 // QC photos live on Cloudinary for the life of the case and stay there (no
 // Google Drive archival — per the chosen "Cloudinary only" storage policy).
@@ -149,7 +153,7 @@ module.exports = async (req, res) => {
         if (!cs) return res.status(401).json({ error: 'Not logged in.' });
         const { data } = await supabase
           .from('return_requests')
-          .select('order_id, exchange_id, request_type, reason, status, resolution, admin_note, refund_amount, refund_method, picked_up_at, created_at, updated_at')
+          .select('order_id, exchange_id, request_type, reason, status, resolution, admin_note, refund_amount, refund_method, refund_receipt_url, picked_up_at, created_at, updated_at')
           .eq('phone', cs.phone)
           .order('created_at', { ascending: false });
         const rows = data || [];
@@ -753,7 +757,9 @@ module.exports = async (req, res) => {
       }
 
       // ----- Admin: process the refund once the item is back ('Returned') -----
-      // Pure refund using the customer's saved UPI/bank. Requires those details.
+      // Pure refund to the customer's saved UPI/bank. The admin MUST upload a
+      // transaction receipt — it's saved to Google Drive FIRST, and only on a
+      // successful upload is the refund completed.
       if (action === 'process-refund') {
         const { data: ret } = await supabase
           .from('return_requests')
@@ -772,18 +778,37 @@ module.exports = async (req, res) => {
           return res.status(400).json({ error: 'The customer has not saved any refund (UPI/bank) details yet.' });
         }
 
+        // Validate + save the transaction receipt to Google Drive (required).
+        const rc = req.body.receipt || {};
+        if (!rc.data || !rc.mimeType) return res.status(400).json({ error: 'Please attach the transaction receipt.' });
+        if (!RECEIPT_TYPES.includes(rc.mimeType)) return res.status(400).json({ error: 'Receipt must be an image or PDF.' });
+        let buf;
+        try { buf = Buffer.from(String(rc.data), 'base64'); } catch (_) { buf = null; }
+        if (!buf || !buf.length) return res.status(400).json({ error: 'Could not read the receipt file.' });
+        if (buf.length > RECEIPT_MAX_BYTES) return res.status(400).json({ error: 'Receipt is too large (max 4 MB).' });
+
+        const ext = rc.mimeType === 'application/pdf' ? 'pdf' : (rc.mimeType.split('/')[1] || 'jpg');
+        let receiptUrl;
+        try {
+          const up = await uploadBinaryFile(`refund-receipt-${ret.order_id}.${ext}`, rc.mimeType, buf, { shareAnyone: true });
+          receiptUrl = up.webViewLink || up.id || null;
+        } catch (e) {
+          return res.status(502).json({ error: 'Could not save the receipt to Google Drive — refund not processed. ' + e.message });
+        }
+
         const { data: ord } = await supabase
           .from('orders').select('total').eq('order_id', ret.order_id).maybeSingle();
         const method = hasUpi ? `UPI: ${cust.refund_upi}` : `Bank: ${cust.bank_account} / ${cust.bank_ifsc}`;
         const { data: upd } = await supabase.from('return_requests').update({
           status: 'Refunded', resolution: 'refund',
           refund_amount: ord ? ord.total : null, refund_method: method,
+          refund_receipt_url: receiptUrl,
           updated_at: new Date().toISOString()
         }).eq('id', ret.id).select('*').single();
         const { error: rpcErr } = await supabase.rpc('process_return_refund', { p_order_id: ret.order_id });
         if (rpcErr) throw rpcErr;
         if (upd && upd.email) sendReturnUpdate(upd.email, upd).catch(() => {});
-        return res.json({ success: true, refund_method: method });
+        return res.json({ success: true, refund_method: method, receipt_url: receiptUrl });
       }
 
       // ----- Pickup partner roster (admin) -----
