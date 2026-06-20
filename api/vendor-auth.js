@@ -55,6 +55,9 @@ module.exports = async (req, res) => {
       const { token: sessionToken, stored } = newSessionToken();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
+      // Single session per account: drop any other active sessions first.
+      await supabase.from('vendor_sessions').delete().eq('vendor_id', vendor.id);
+
       const { error: sessionError } = await supabase
         .from('vendor_sessions')
         .insert({ token: stored, vendor_id: vendor.id, expires_at: expiresAt });

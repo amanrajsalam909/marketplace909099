@@ -101,6 +101,8 @@ module.exports = async (req, res) => {
         .from('customers').select('name').eq('phone', nPhone).single();
 
       const { token: sessionToken, stored } = newSessionToken();
+      // Single session per account: drop any other active sessions first.
+      await supabase.from('customer_sessions').delete().eq('phone', nPhone);
       await supabase.from('customer_sessions').insert({
         token: stored, phone: nPhone, email: row.email,
         name: customer?.name || null,

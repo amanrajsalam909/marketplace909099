@@ -507,6 +507,8 @@ module.exports = async (req, res) => {
             .update({ password_hash: await hashPassword(password) }).eq('id', p.id);
         }
         const { token, stored } = newSessionToken();
+        // Single session per account: drop any other active sessions first.
+        await supabase.from('partner_sessions').delete().eq('partner_id', p.id);
         await supabase.from('partner_sessions').insert({
           token: stored, partner_id: p.id,
           expires_at: new Date(Date.now() + PARTNER_SESSION_TTL_MS).toISOString()
