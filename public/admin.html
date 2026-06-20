@@ -280,6 +280,7 @@
         <button class="tab" data-tab="reviews">Reviews</button>
         <button class="tab" data-tab="complaints">Complaints</button>
         <button class="tab" data-tab="returns">Returns</button>
+        <button class="tab" data-tab="refunds">Refunds</button>
         <button class="tab" data-tab="exchanges">Exchanges</button>
         <button class="tab" data-tab="products">Products</button>
         <button class="tab" data-tab="settings">Settings</button>
@@ -425,8 +426,17 @@
       </div>
       <div class="card">
         <h3>↩️ Returns</h3>
-        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Refund-seeking returns only. Approve, assign a pickup partner (generates the customer's pickup code), then Finalize (Gate 3) — refund if the customer saved UPI/bank, else a same-day exchange. The customer is emailed at every step.</p>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Read-only tracking. Returns are vendor-driven: the <b>vendor</b> dispatches a pickup partner, the partner collects + QCs, and the vendor confirms receipt (<b>Returned</b>). The money step is in the <b>Refunds</b> tab.</p>
         <div id="returnsList"><div class="state">Loading…</div></div>
+      </div>
+    </section>
+
+    <!-- REFUNDS (admin processes the money once an item is Returned) -->
+    <section class="panel" id="panel-refunds">
+      <div class="card">
+        <h3>💸 Refunds</h3>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Returns whose item is back with the vendor (<b>Returned</b>). Process the full refund to the customer's saved UPI/bank — stock is restored &amp; commission reversed automatically.</p>
+        <div id="refundsList"><div class="state">Loading…</div></div>
       </div>
     </section>
 
@@ -1359,7 +1369,7 @@
       'Rejected': 'background:#fee2e2;color:#991b1b', 'Ready': 'background:#fef9c3;color:#854d0e',
       'Assigned': 'background:#ede9fe;color:#5b21b6',
       'Picked up': 'background:#e0e7ff;color:#3730a3', 'QC failed': 'background:#fee2e2;color:#991b1b',
-      'Refunded': 'background:#d1fae5;color:#065f46',
+      'Returned': 'background:#cffafe;color:#155e75', 'Refunded': 'background:#d1fae5;color:#065f46',
       'Exchange scheduled': 'background:#dbeafe;color:#1e40af', 'Exchanged': 'background:#d1fae5;color:#065f46'
     };
     let lastPartners = [];
@@ -1387,72 +1397,80 @@
       }
     }
 
+    // Read-only return tracking. Returns are vendor-driven (vendor dispatches a
+    // partner, then confirms receipt). The money step lives in the Refunds tab.
+    function returnCardRO(r) {
+      const partnerName = (r.return_partners || {}).name || '';
+      return `
+        <div class="list-row" style="align-items:flex-start">
+          <div class="row-info">
+            <div class="row-title">${esc(r.order_id)}
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${RET_BADGE[r.status] || RET_BADGE['Requested']}">${esc(r.status)}</span>
+            </div>
+            <div class="row-sub">${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} (${esc(r.email || '')}) · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
+            <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
+            ${partnerName ? `<div style="font-size:12px;color:var(--text);margin-top:4px">📦 Partner: <b>${esc(partnerName)}</b></div>` : ''}
+            ${r.qc_status ? `<div style="font-size:12px;margin-top:4px;font-weight:600;color:${r.qc_status === 'passed' ? 'var(--green)' : 'var(--red)'}">🔍 Photo QC: ${r.qc_status}</div>` : ''}
+            ${(r.photos || []).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.photos.map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.slot)}"><img src="${esc(p.url)}" style="width:52px;height:52px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`).join('')}</div>` : ''}
+            ${r.status === 'Returned' ? '<div style="font-size:12px;color:#854d0e;font-weight:600;margin-top:6px">✅ Returned — item back with the vendor, awaiting refund.</div>' : ''}
+            ${r.status === 'Refunded' && r.refund_amount != null ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px">💸 Refunded ${inr(r.refund_amount)}${r.refund_method ? ' via ' + esc(r.refund_method) : ''}</div>` : ''}
+          </div>
+        </div>`;
+    }
     async function loadReturns() {
       try {
         const [allRows] = await Promise.all([api(`/api/feedback?returns=1`), loadPartners()]);
         lastReturns = allRows;
         const list = allRows.filter(r => r.request_type !== 'exchange');
-        const partnerOpts = lastPartners.filter(p => p.active);
         const el = document.getElementById('returnsList');
         if (!list.length) { el.innerHTML = '<div class="state">No return requests. 🎉</div>'; return; }
-        el.innerHTML = list.map(r => {
-          const partnerName = (r.return_partners || {}).name || '';
-          const canAssign = ['Approved', 'Assigned'].includes(r.status);
-          return `
-          <div class="list-row" style="align-items:flex-start">
-            <div class="row-info">
-              <div class="row-title">${esc(r.order_id)}
-                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${RET_BADGE[r.status] || RET_BADGE['Requested']}">${esc(r.status)}</span>
-                ${r.resolution ? `<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:4px;${r.resolution === 'refund' ? 'background:#d1fae5;color:#065f46' : 'background:#dbeafe;color:#1e40af'}">${r.resolution === 'refund' ? '💸 Refund' : '🔁 Exchange'}</span>` : ''}
-              </div>
-              <div class="row-sub">${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} (${esc(r.email || '')}) · ${new Date(r.created_at).toLocaleDateString('en-IN')}</div>
-              <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
-              ${partnerName ? `<div style="font-size:12px;color:var(--text);margin-top:4px">📦 Partner: <b>${esc(partnerName)}</b></div>` : ''}
-              ${r.qc_status ? `<div style="font-size:12px;margin-top:4px;font-weight:600;color:${r.qc_status === 'passed' ? 'var(--green)' : 'var(--red)'}">🔍 Photo QC: ${r.qc_status}</div>` : ''}
-              ${(r.photos || []).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${r.photos.map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.slot)}"><img src="${esc(p.url)}" style="width:52px;height:52px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`).join('')}</div>` : ''}
-              ${r.status === 'Refunded' && r.refund_amount != null ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:4px">💸 Refunded ${inr(r.refund_amount)}${r.refund_method ? ' via ' + esc(r.refund_method) : ''}</div>` : ''}
-            </div>
-            <div style="flex-basis:100%;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px">
-              ${canAssign ? `
-              <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px">
-                <label style="margin:0 0 5px">Assign pickup partner ${r.status === 'Assigned' ? '(re-assign generates a fresh code)' : '— generates the pickup code'}</label>
-                <div style="display:flex;gap:8px;flex-wrap:wrap">
-                  <select data-ret-partner="${r.id}" style="flex:1;min-width:160px">
-                    <option value="">— choose partner —</option>
-                    ${partnerOpts.map(p => `<option value="${p.id}" ${r.assigned_partner_id === p.id ? 'selected' : ''}>${esc(p.name)} (${esc(p.login_id)})</option>`).join('')}
-                  </select>
-                  <button class="btn btn-primary btn-sm" data-ret-assign="${r.id}">📦 Assign &amp; send code</button>
-                </div>
-              </div>` : ''}
-              <div class="form-grid">
-                <div><label>Status</label>
-                  <select data-ret-status="${r.id}">${RET_STATUSES.map(s => `<option ${r.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
-                </div>
-                <div><label>Resolution</label>
-                  <select data-ret-resolution="${r.id}">
-                    <option value="">— not set —</option>
-                    <option value="refund" ${r.resolution === 'refund' ? 'selected' : ''}>Refund</option>
-                    <option value="exchange" ${r.resolution === 'exchange' ? 'selected' : ''}>Exchange</option>
-                  </select>
-                </div>
-                <div><label>Refund amount (₹)</label><input data-ret-amount="${r.id}" type="number" min="0" step="0.01" value="${r.refund_amount != null ? r.refund_amount : ''}" placeholder="only when refunding"></div>
-                <div><label>Refund method</label><input data-ret-method="${r.id}" type="text" value="${esc(r.refund_method || '')}" placeholder="Cash / UPI"></div>
-              </div>
-              <label style="margin-top:10px">Note to customer (reject reason / pickup info)</label>
-              <textarea data-ret-note="${r.id}" rows="2" placeholder="Emailed to the customer with this update">${esc(r.admin_note || '')}</textarea>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-                ${r.status === 'Requested' ? `<button class="btn btn-sm" data-ret-approve="${r.id}" style="background:var(--green);color:#fff">✅ Approve</button>
-                <button class="btn btn-sm" data-ret-reject="${r.id}" style="background:#fff;color:var(--red);border:1px solid #fecaca">✖ Reject</button>` : ''}
-                <button class="btn btn-primary btn-sm" data-ret-update="${r.id}">✉️ Update &amp; email customer</button>
-                ${r.status === 'Picked up' ? `<button class="btn btn-sm" data-ret-finalize="${r.id}" style="background:var(--green);color:#fff">✅ Finalize (Gate 3) — refund / exchange</button>` : ''}
-              </div>
-            </div>
-          </div>`;
-        }).join('');
+        el.innerHTML = list.map(returnCardRO).join('');
       } catch (e) {
         document.getElementById('returnsList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
       }
     }
+
+    /* ---------- Refunds: process money once an item is Returned ---------- */
+    async function loadRefunds() {
+      try {
+        const allRows = await api(`/api/feedback?returns=1`);
+        lastReturns = allRows;
+        const list = allRows.filter(r => r.request_type === 'return' && ['Returned', 'Refunded'].includes(r.status));
+        const el = document.getElementById('refundsList');
+        if (!list.length) { el.innerHTML = '<div class="state">No returns awaiting refund. 🎉</div>'; return; }
+        el.innerHTML = list.map(r => {
+          const awaiting = r.status === 'Returned';
+          return `
+          <div class="list-row" style="align-items:flex-start">
+            <div class="row-info">
+              <div class="row-title">${esc(r.order_id)}
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${RET_BADGE[r.status] || RET_BADGE['Returned']}">${esc(r.status)}</span>
+              </div>
+              <div class="row-sub">${esc((r.vendors || {}).name || '')} · ${esc(r.customer_name || '')} (${esc(r.email || '')})</div>
+              <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
+              ${r.status === 'Refunded' && r.refund_amount != null ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px">💸 Refunded ${inr(r.refund_amount)}${r.refund_method ? ' via ' + esc(r.refund_method) : ''}</div>` : ''}
+            </div>
+            ${awaiting ? `<div style="flex-basis:100%;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px">
+              <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Item received back. Refund goes to the customer's saved UPI/bank (full order value).</div>
+              <button class="btn btn-sm" data-refund="${r.id}" style="background:var(--green);color:#fff">💸 Process refund</button>
+            </div>` : ''}
+          </div>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById('refundsList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+    document.getElementById('refundsList').addEventListener('click', async e => {
+      const btn = e.target.closest('[data-refund]');
+      if (!btn) return;
+      if (!confirm('Process the full refund to the customer\'s saved UPI/bank details?')) return;
+      btn.disabled = true; btn.textContent = 'Processing…';
+      try {
+        const d = await fbPost({ action: 'process-refund', returnId: btn.dataset.refund });
+        toast('Refund processed via ' + (d.refund_method || 'saved details') + ' · customer emailed');
+        loadRefunds();
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = '💸 Process refund'; }
+    });
 
     /* ---------- Exchanges (same-product swap; partner completes at the door) ---------- */
     async function loadExchanges() {
@@ -1485,82 +1503,8 @@
       }
     }
 
-    // Shared by both the Returns and Exchanges lists. `reload` re-renders the
-    // list the click came from.
-    async function returnsClickHandler(e, reload) {
-      // Assign a pickup partner -> generates the customer's pickup code.
-      const assign = e.target.closest('[data-ret-assign]');
-      if (assign) {
-        const id = assign.dataset.retAssign;
-        const partnerId = (document.querySelector(`[data-ret-partner="${id}"]`) || {}).value || '';
-        if (!partnerId) { toast('Choose a partner first.'); return; }
-        assign.disabled = true; assign.textContent = 'Assigning…';
-        try {
-          await fbPost({ action: 'assign-partner', returnId: id, partnerId });
-          toast('Partner assigned · pickup code now in the customer profile');
-          reload();
-        } catch (err) { toast(err.message); assign.disabled = false; assign.innerHTML = '📦 Assign &amp; send code'; }
-        return;
-      }
-
-      // Approve a requested return/exchange -> Assign box appears.
-      const ap = e.target.closest('[data-ret-approve]');
-      if (ap) {
-        const id = ap.dataset.retApprove;
-        const resolution = (document.querySelector(`[data-ret-resolution="${id}"]`) || {}).value || '';
-        ap.disabled = true; ap.textContent = 'Approving…';
-        try {
-          await fbPost({ action: 'update-return', returnId: id, status: 'Approved', resolution });
-          toast('Approved · now assign a pickup partner');
-          reload();
-        } catch (err) { toast(err.message); ap.disabled = false; ap.textContent = '✅ Approve'; }
-        return;
-      }
-      const rej = e.target.closest('[data-ret-reject]');
-      if (rej) {
-        const id = rej.dataset.retReject;
-        const note = prompt('Reason for rejecting (emailed to the customer):');
-        if (note === null) return;
-        try {
-          await fbPost({ action: 'update-return', returnId: id, status: 'Rejected', admin_note: note });
-          toast('Rejected · customer emailed');
-          reload();
-        } catch (err) { toast(err.message); }
-        return;
-      }
-
-      // Gate 3 (returns only): finalize -> auto refund or same-day exchange.
-      const fin = e.target.closest('[data-ret-finalize]');
-      if (fin) {
-        if (!confirm('Finalize this return? If the customer saved UPI/bank details it refunds in full; otherwise it schedules a same-day exchange.')) return;
-        fin.disabled = true; fin.textContent = 'Finalizing…';
-        try {
-          const d = await fbPost({ action: 'finalize-return', returnId: fin.dataset.retFinalize });
-          toast(d.resolution === 'refund' ? 'Refund processed · customer emailed' : 'Same-day exchange scheduled · customer emailed');
-          reload();
-        } catch (err) { toast(err.message); fin.disabled = false; fin.textContent = '✅ Finalize (Gate 3) — refund / exchange'; }
-        return;
-      }
-
-      const btn = e.target.closest('[data-ret-update]');
-      if (!btn) return;
-      const id = btn.dataset.retUpdate;
-      const val = sel => (document.querySelector(`[data-ret-${sel}="${id}"]`) || {}).value || '';
-      const status = val('status') || undefined;   // exchange cards have no status dropdown
-      if (status === 'Refunded' && !val('amount')) { toast('Enter the refund amount.'); return; }
-      btn.disabled = true; btn.textContent = 'Saving…';
-      try {
-        const body = { action: 'update-return', returnId: id, admin_note: val('note').trim() };
-        if (status) { body.status = status; body.resolution = val('resolution'); body.refund_amount = val('amount').trim(); body.refund_method = val('method').trim(); }
-        await fbPost(body);
-        toast('Updated · customer emailed');
-        reload();
-      } catch (err) {
-        toast(err.message);
-        btn.disabled = false; btn.innerHTML = '✉️ Update &amp; email customer';
-      }
-    }
-    document.getElementById('returnsList').addEventListener('click', e => returnsClickHandler(e, loadReturns));
+    // (Returns list is read-only now — vendor-driven logistics + Refunds tab.
+    //  The old approve/assign/finalize handler was removed with that change.)
 
     /* ---------- Pickup partners ---------- */
     document.getElementById('pCreate').addEventListener('click', async () => {
@@ -1895,6 +1839,7 @@
         if (tab.dataset.tab === 'reviews') loadReviews();
         if (tab.dataset.tab === 'complaints') loadComplaints();
         if (tab.dataset.tab === 'returns') loadReturns();
+        if (tab.dataset.tab === 'refunds') loadRefunds();
         if (tab.dataset.tab === 'exchanges') loadExchanges();
         if (tab.dataset.tab === 'products') loadProducts();
         updateExportLabel();

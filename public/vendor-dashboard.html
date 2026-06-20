@@ -1369,36 +1369,85 @@
       toast('Exported ' + fmt.toUpperCase());
     }
 
-    /* ---------- Returns (read-only; admin-handled) ---------- */
+    /* ---------- Returns (vendor-driven: dispatch partner, then confirm receipt) ---------- */
     const VRET_BADGE = {
-      'Requested': 'background:#fef3c7;color:#92400e', 'Approved': 'background:#dbeafe;color:#1e40af',
+      'Requested': 'background:#fef3c7;color:#92400e', 'Assigned': 'background:#ede9fe;color:#5b21b6',
       'Rejected': 'background:#fee2e2;color:#991b1b', 'Picked up': 'background:#e0e7ff;color:#3730a3',
+      'QC failed': 'background:#fee2e2;color:#991b1b', 'Returned': 'background:#cffafe;color:#155e75',
       'Refunded': 'background:#d1fae5;color:#065f46'
     };
     async function loadReturns() {
       const el = document.getElementById('returnsBody');
       el.innerHTML = '<div class="state">Loading returns…</div>';
       try {
-        const res = await fetch('/api/feedback?vendorReturns=1', { headers: { Authorization: 'Bearer ' + token } });
-        if (res.status === 401) { logout(); return; }
-        if (!res.ok) throw new Error('Could not load returns.');
-        const list = await res.json();
+        const [rRes, pRes] = await Promise.all([
+          fetch('/api/feedback?vendorReturns=1', { headers: { Authorization: 'Bearer ' + token } }),
+          fetch('/api/feedback?activePartners=1', { headers: { Authorization: 'Bearer ' + token } })
+        ]);
+        if (rRes.status === 401) { logout(); return; }
+        if (!rRes.ok) throw new Error('Could not load returns.');
+        const list = await rRes.json();
+        vendorPartners = pRes.ok ? await pRes.json() : [];
         if (!Array.isArray(list) || !list.length) { el.innerHTML = '<div class="state">No returns for your shop. 🎉</div>'; return; }
-        el.innerHTML = list.map(r => `
+        const partnerOpts = vendorPartners.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+        el.innerHTML = list.map(r => {
+          const items = (r.items || []).map(i => `${esc(i.product_name)} × ${i.qty || 1}`).join(', ');
+          return `
           <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
               <div style="font-weight:800;color:var(--dark);font-size:14px">${esc(r.order_id)}</div>
               <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;${VRET_BADGE[r.status] || VRET_BADGE['Requested']}">${esc(r.status)}</span>
             </div>
+            ${items ? `<div style="font-size:12px;color:var(--muted);margin-top:6px">📦 ${items}</div>` : ''}
             <div style="font-size:13px;color:var(--text);margin-top:6px"><b>Reason:</b> ${esc(r.reason)}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:4px">Requested ${new Date(r.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</div>
-            ${r.admin_note ? `<div style="font-size:12px;color:var(--text);margin-top:8px;white-space:pre-wrap;border-top:1px dashed var(--border);padding-top:8px"><b>Admin note:</b> ${esc(r.admin_note)}</div>` : ''}
-            ${r.status === 'Refunded' && r.refund_amount != null ? `<div style="font-size:12px;color:#059669;font-weight:600;margin-top:6px">💸 Refunded ${inr(r.refund_amount)}${r.refund_method ? ' via ' + esc(r.refund_method) : ''} · stock restored</div>` : ''}
-          </div>`).join('');
+            ${r.qc_status ? `<div style="font-size:12px;margin-top:4px;font-weight:600;color:${r.qc_status === 'passed' ? '#059669' : '#dc2626'}">🔍 Photo QC: ${r.qc_status}</div>` : ''}
+            ${r.status === 'Requested'
+              ? `<div style="border-top:1px dashed var(--border);margin-top:12px;padding-top:12px">
+                   <div style="font-size:12px;font-weight:600;color:var(--dark);margin-bottom:6px">Send a pickup partner to collect this return:</div>
+                   ${partnerOpts
+                     ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
+                          <select data-ret-partner="${r.id}" style="flex:1;min-width:150px;padding:9px;border:1px solid var(--border);border-radius:8px"><option value="">— choose pickup partner —</option>${partnerOpts}</select>
+                          <button class="btn-primary" data-ret-dispatch="${r.id}">📦 Dispatch for pickup</button>
+                        </div>`
+                     : '<div style="font-size:12px;color:#dc2626">No pickup partners available yet — ask the marketplace to add one.</div>'}
+                 </div>`
+              : (r.status === 'Assigned' ? '<div style="font-size:12px;color:#5b21b6;font-weight:600;margin-top:10px">🛵 Out for pickup — partner is collecting from the customer.</div>'
+                 : (r.status === 'Picked up' ? `<div style="border-top:1px dashed var(--border);margin-top:12px;padding-top:12px">
+                        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Partner collected the item${r.qc_status === 'passed' ? ' (QC passed)' : ''}. Confirm once it's back with you:</div>
+                        <button class="btn-primary" data-ret-receive="${r.id}">✅ Confirm return received</button>
+                      </div>`
+                 : (r.status === 'Returned' ? '<div style="font-size:12px;color:#155e75;font-weight:600;margin-top:10px">✅ Returned — marketplace will refund the customer.</div>'
+                 : (r.status === 'Refunded' ? `<div style="font-size:12px;color:#059669;font-weight:600;margin-top:10px">💸 Refunded${r.refund_amount != null ? ' ' + inr(r.refund_amount) : ''} · stock restored.</div>` : ''))))}
+          </div>`;
+        }).join('');
       } catch (e) {
         el.innerHTML = `<div class="state">${esc(e.message)}</div>`;
       }
     }
+    document.getElementById('returnsBody').addEventListener('click', async e => {
+      const disp = e.target.closest('[data-ret-dispatch]');
+      const recv = e.target.closest('[data-ret-receive]');
+      if (disp) {
+        const id = disp.dataset.retDispatch;
+        const partnerId = (document.querySelector(`[data-ret-partner="${id}"]`) || {}).value || '';
+        if (!partnerId) { alert('Choose a pickup partner first.'); return; }
+        disp.disabled = true; disp.textContent = 'Dispatching…';
+        try {
+          const res = await fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ action: 'vendor-dispatch', returnId: id, partnerId }) });
+          const d = await res.json(); if (!res.ok) throw new Error(d.error || 'Could not dispatch.');
+          loadReturns();
+        } catch (err) { disp.disabled = false; disp.textContent = '📦 Dispatch for pickup'; alert(err.message); }
+      } else if (recv) {
+        recv.disabled = true; recv.textContent = 'Saving…';
+        try {
+          const res = await fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ action: 'vendor-return-received', returnId: recv.dataset.retReceive }) });
+          const d = await res.json(); if (!res.ok) throw new Error(d.error || 'Could not confirm.');
+          loadReturns();
+        } catch (err) { recv.disabled = false; recv.textContent = '✅ Confirm return received'; alert(err.message); }
+      }
+    });
 
     /* ---------- Exchanges: re-prepare the replacement ---------- */
     const VEXC_BADGE = {

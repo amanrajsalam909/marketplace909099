@@ -413,7 +413,7 @@
     const RET_BADGE = {
       'Requested': 'background:#fef3c7;color:#92400e', 'Approved': 'background:#dbeafe;color:#1e40af',
       'Rejected': 'background:#fee2e2;color:#991b1b', 'Ready': 'background:#fef9c3;color:#854d0e',
-      'Assigned': 'background:#ede9fe;color:#5b21b6',
+      'Assigned': 'background:#ede9fe;color:#5b21b6', 'Returned': 'background:#cffafe;color:#155e75',
       'Picked up': 'background:#e0e7ff;color:#3730a3', 'QC failed': 'background:#fee2e2;color:#991b1b',
       'Refunded': 'background:#d1fae5;color:#065f46',
       'Exchange scheduled': 'background:#dbeafe;color:#1e40af', 'Exchanged': 'background:#d1fae5;color:#065f46'
@@ -423,6 +423,12 @@
       'Ready': '📦 Replacement ready — out for delivery soon.',
       'Assigned': '🛵 Out for delivery — share the pickup code below at handover.',
       'Picked up': '🔄 Item collected — finalizing your exchange.'
+    };
+    const RET_HINT = {
+      'Requested': '🛵 We\'ll send a pickup partner shortly.',
+      'Assigned': '🛵 Pickup partner assigned — share the pickup code below at collection.',
+      'Picked up': '🔄 Item collected — being checked.',
+      'Returned': '✅ Item received — your refund is being processed to your saved bank/UPI.'
     };
     function returnBlock(r) {
       const badge = RET_BADGE[r.status] || RET_BADGE['Requested'];
@@ -436,6 +442,7 @@
           <div style="font-size:12px;color:var(--muted);margin-top:3px">Reason: ${esc(r.reason)}</div>
           ${r.exchange_id ? `<div style="font-size:11px;color:var(--muted);margin-top:3px">Exchange ID: <b>${esc(r.exchange_id)}</b></div>` : ''}
           ${isExchange && EXCH_HINT[r.status] ? `<div style="font-size:12px;color:var(--text);margin-top:6px">${EXCH_HINT[r.status]}</div>` : ''}
+          ${!isExchange && RET_HINT[r.status] ? `<div style="font-size:12px;color:var(--text);margin-top:6px">${RET_HINT[r.status]}</div>` : ''}
           ${r.status === 'Exchanged' ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px">✅ Exchanged${r.picked_up_at ? ' on ' + new Date(r.picked_up_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''} — replacement handed over.</div>` : ''}
           ${r.status === 'Assigned' && r.pickup_otp ? `
             <div style="margin:10px 0 2px;text-align:center;border:2px dashed var(--primary);border-radius:10px;padding:12px;background:#fff7ed">

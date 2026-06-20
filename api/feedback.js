@@ -38,7 +38,7 @@ const RETURN_WINDOW_DAYS = 3;
 const EXCHANGE_WINDOW_HOURS = 48;   // fashion-only exchanges, raised within 48h of delivery
 const RETURN_STATUSES = [
   'Requested', 'Approved', 'Rejected', 'Ready', 'Assigned', 'Picked up',
-  'QC failed', 'Refunded', 'Exchange scheduled', 'Exchanged'
+  'QC failed', 'Returned', 'Refunded', 'Exchange scheduled', 'Exchanged'
 ];
 
 // Unambiguous alphabet (no I/O/0/1) for human-readable Exchange IDs.
@@ -167,17 +167,27 @@ module.exports = async (req, res) => {
         return res.json(rows);
       }
 
-      // Logged-in vendor: returns for their own orders (read-only)
+      // Logged-in vendor: RETURNS to action for their shop (dispatch a pickup
+      // partner, then confirm receipt). Includes the order's items + qc_status.
       if (req.query.vendorReturns) {
         const vs = await validateVendorSession(getToken(req));
         if (!vs) return res.status(401).json({ error: 'Not logged in.' });
-        const { data } = await supabase
+        const { data: rows } = await supabase
           .from('return_requests')
-          .select('order_id, reason, status, admin_note, refund_amount, refund_method, created_at, updated_at')
+          .select('id, order_id, reason, status, qc_status, assigned_partner_id, admin_note, refund_amount, refund_method, returned_received_at, created_at, updated_at')
           .eq('vendor_id', vs.vendor_id)
           .eq('request_type', 'return')
           .order('created_at', { ascending: false }).limit(200);
-        return res.json(data || []);
+        const list = rows || [];
+        const ids = list.map(r => r.order_id);
+        if (ids.length) {
+          const { data: items } = await supabase
+            .from('order_items').select('order_id, product_id, product_name, qty').in('order_id', ids);
+          const byOrder = {};
+          (items || []).forEach(i => { (byOrder[i.order_id] = byOrder[i.order_id] || []).push(i); });
+          list.forEach(r => { r.items = byOrder[r.order_id] || []; });
+        }
+        return res.json(list);
       }
 
       // Logged-in vendor: EXCHANGES to re-prepare for their shop. Each carries
@@ -606,19 +616,21 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: 'Unknown action' });
       }
 
-      // ----- Vendor: dispatch a prepared exchange to a pickup partner -----
-      // (Admin is out of the exchange loop, so the vendor assigns the partner
-      // after re-preparing. This also generates the customer's pickup code.)
-      if (action === 'vendor-exchange-dispatch') {
+      // ----- Vendor: dispatch a return OR exchange to a pickup partner -----
+      // (Admin is out of the logistics loop; the vendor assigns the partner.
+      // This generates the customer's pickup code.) Returns dispatch from
+      // 'Requested'; exchanges from 'Approved' (after re-preparing).
+      if (action === 'vendor-dispatch' || action === 'vendor-exchange-dispatch') {
         const vs = await validateVendorSession(getToken(req));
         if (!vs) return res.status(401).json({ error: 'Please sign in again.' });
         const { data: ret } = await supabase
           .from('return_requests')
           .select('id, status, request_type, vendor_id, email, order_id')
           .eq('id', req.body.returnId).maybeSingle();
-        if (!ret || ret.vendor_id !== vs.vendor_id) return res.status(404).json({ error: 'Exchange not found for your shop.' });
-        if (ret.request_type !== 'exchange') return res.status(400).json({ error: 'That request is not an exchange.' });
-        if (!['Approved', 'Assigned'].includes(ret.status)) return res.status(400).json({ error: 'This exchange cannot be dispatched right now.' });
+        if (!ret || ret.vendor_id !== vs.vendor_id) return res.status(404).json({ error: 'Request not found for your shop.' });
+        if (!['Requested', 'Approved', 'Ready', 'Assigned'].includes(ret.status)) {
+          return res.status(400).json({ error: 'This request cannot be dispatched right now.' });
+        }
         const { data: partner } = await supabase
           .from('return_partners').select('id, active').eq('id', req.body.partnerId).maybeSingle();
         if (!partner || !partner.active) return res.status(400).json({ error: 'Choose an active pickup partner.' });
@@ -633,6 +645,32 @@ module.exports = async (req, res) => {
           .from('return_requests')
           .update({ assigned_partner_id: req.body.partnerId, assigned_at: new Date().toISOString(),
                     status: 'Assigned', updated_at: new Date().toISOString() })
+          .eq('id', ret.id).select('*').single();
+        if (upd && upd.email) sendReturnUpdate(upd.email, upd).catch(() => {});
+        return res.json({ success: true });
+      }
+
+      // ----- Vendor: confirm a returned item is back in hand -> 'Returned' -----
+      // (After the pickup partner has collected + passed QC. Opens the refund
+      // window for the admin.)
+      if (action === 'vendor-return-received') {
+        const vs = await validateVendorSession(getToken(req));
+        if (!vs) return res.status(401).json({ error: 'Please sign in again.' });
+        const { data: ret } = await supabase
+          .from('return_requests')
+          .select('id, status, qc_status, request_type, vendor_id, email, order_id')
+          .eq('id', req.body.returnId).maybeSingle();
+        if (!ret || ret.vendor_id !== vs.vendor_id) return res.status(404).json({ error: 'Return not found for your shop.' });
+        if (ret.request_type !== 'return') return res.status(400).json({ error: 'That request is not a return.' });
+        if (ret.status !== 'Picked up') return res.status(400).json({ error: 'The item must be picked up before you can confirm receipt.' });
+        // If photo QC was required it must have passed.
+        const flagged = await flaggedProductsByOrder([ret.order_id]);
+        if ((flagged[ret.order_id] || []).length && ret.qc_status !== 'passed') {
+          return res.status(400).json({ error: 'Photo QC has not passed for this return yet.' });
+        }
+        const { data: upd } = await supabase
+          .from('return_requests')
+          .update({ status: 'Returned', returned_received_at: new Date().toISOString(), updated_at: new Date().toISOString() })
           .eq('id', ret.id).select('*').single();
         if (upd && upd.email) sendReturnUpdate(upd.email, upd).catch(() => {});
         return res.json({ success: true });
@@ -714,51 +752,38 @@ module.exports = async (req, res) => {
         return res.json({ success: true });
       }
 
-      // ----- Gate 3: admin finalizes a picked-up return -----
-      // Auto-branches: refund if the customer saved UPI/bank details, else a
-      // same-day exchange. Full refund (free pickup, no deduction — policy).
-      if (action === 'finalize-return') {
+      // ----- Admin: process the refund once the item is back ('Returned') -----
+      // Pure refund using the customer's saved UPI/bank. Requires those details.
+      if (action === 'process-refund') {
         const { data: ret } = await supabase
           .from('return_requests')
-          .select('id, order_id, request_type, status, qc_status, email, phone')
+          .select('id, order_id, request_type, status, email, phone')
           .eq('id', req.body.returnId).maybeSingle();
         if (!ret) return res.status(404).json({ error: 'Return not found.' });
-        if (ret.request_type === 'exchange') return res.status(400).json({ error: 'Exchanges are completed by the pickup partner at the door, not finalized here.' });
-        if (ret.status !== 'Picked up') return res.status(400).json({ error: 'The item must be picked up before finalizing.' });
-
-        // Gate 2 must be satisfied if any item required photo QC.
-        const flagged = await flaggedProductsByOrder([ret.order_id]);
-        if ((flagged[ret.order_id] || []).length && ret.qc_status !== 'passed') {
-          return res.status(400).json({ error: 'Photo QC has not passed yet — cannot finalize.' });
-        }
+        if (ret.request_type !== 'return') return res.status(400).json({ error: 'Only returns are refunded here.' });
+        if (ret.status !== 'Returned') return res.status(400).json({ error: 'The item must be received back (Returned) before refunding.' });
 
         const { data: cust } = await supabase
           .from('customers').select('refund_upi, bank_account, bank_ifsc, bank_holder')
           .eq('phone', ret.phone).maybeSingle();
         const hasUpi = cust && cust.refund_upi;
         const hasBank = cust && cust.bank_account && cust.bank_ifsc;
-
-        let upd;
-        if (hasUpi || hasBank) {
-          const { data: ord } = await supabase
-            .from('orders').select('total').eq('order_id', ret.order_id).maybeSingle();
-          const method = hasUpi ? `UPI: ${cust.refund_upi}` : `Bank: ${cust.bank_account} / ${cust.bank_ifsc}`;
-          ({ data: upd } = await supabase.from('return_requests').update({
-            status: 'Refunded', resolution: 'refund',
-            refund_amount: ord ? ord.total : null, refund_method: method,
-            updated_at: new Date().toISOString()
-          }).eq('id', ret.id).select('*').single());
-          const { error: rpcErr } = await supabase.rpc('process_return_refund', { p_order_id: ret.order_id });
-          if (rpcErr) throw rpcErr;
-        } else {
-          ({ data: upd } = await supabase.from('return_requests').update({
-            status: 'Exchange scheduled', resolution: 'exchange',
-            admin_note: 'No refund details on file — same-day exchange of the same product.',
-            updated_at: new Date().toISOString()
-          }).eq('id', ret.id).select('*').single());
+        if (!hasUpi && !hasBank) {
+          return res.status(400).json({ error: 'The customer has not saved any refund (UPI/bank) details yet.' });
         }
+
+        const { data: ord } = await supabase
+          .from('orders').select('total').eq('order_id', ret.order_id).maybeSingle();
+        const method = hasUpi ? `UPI: ${cust.refund_upi}` : `Bank: ${cust.bank_account} / ${cust.bank_ifsc}`;
+        const { data: upd } = await supabase.from('return_requests').update({
+          status: 'Refunded', resolution: 'refund',
+          refund_amount: ord ? ord.total : null, refund_method: method,
+          updated_at: new Date().toISOString()
+        }).eq('id', ret.id).select('*').single();
+        const { error: rpcErr } = await supabase.rpc('process_return_refund', { p_order_id: ret.order_id });
+        if (rpcErr) throw rpcErr;
         if (upd && upd.email) sendReturnUpdate(upd.email, upd).catch(() => {});
-        return res.json({ success: true, resolution: upd ? upd.resolution : null, status: upd ? upd.status : null });
+        return res.json({ success: true, refund_method: method });
       }
 
       // ----- Pickup partner roster (admin) -----
