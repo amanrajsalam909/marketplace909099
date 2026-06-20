@@ -433,6 +433,48 @@ module.exports = async (req, res) => {
         return res.json({ success: true });
       }
 
+      // ----- WebRTC voice-call signaling relay (POC) -----
+      // room = order_id. Self-authorizing: the caller is the assigned pickup
+      // partner, the delivery partner (PIN) on a live order, or the customer who
+      // owns the order. Media is P2P; only setup goes through these rows.
+      if (action === 'call-signal') {
+        const who = await authCallRoom(req);
+        if (!who) return res.status(403).json({ error: 'Not allowed on this call.' });
+        const kind = ['offer', 'answer', 'ice', 'bye'].includes(req.body.kind) ? req.body.kind : null;
+        if (!kind) return res.status(400).json({ error: 'Bad signal.' });
+        if (kind === 'bye') {
+          await supabase.from('call_signals').delete().eq('room', req.body.room);
+          return res.json({ success: true });
+        }
+        await supabase.from('call_signals').insert({ room: req.body.room, sender: who.role, kind, payload: req.body.payload || null });
+        // opportunistic TTL cleanup of stale signals (any room, >1h old)
+        supabase.from('call_signals').delete().lt('created_at', new Date(Date.now() - 3600000).toISOString()).then(() => {}, () => {});
+        return res.json({ success: true });
+      }
+      if (action === 'call-poll') {
+        const who = await authCallRoom(req);
+        if (!who) return res.status(403).json({ error: 'Not allowed on this call.' });
+        const since = Number(req.body.since) || 0;
+        const { data } = await supabase
+          .from('call_signals').select('id, sender, kind, payload')
+          .eq('room', req.body.room).neq('sender', who.role).gt('id', since).order('id', { ascending: true });
+        return res.json(data || []);
+      }
+      // Customer poller: is a partner ringing any of my orders right now?
+      if (action === 'call-incoming') {
+        const cs = await validateCustomerSession(getToken(req));
+        if (!cs) return res.status(401).json({ error: 'Not logged in.' });
+        const { data: orders } = await supabase.from('orders').select('order_id').eq('customer_phone', cs.phone);
+        const ids = (orders || []).map(o => o.order_id);
+        if (!ids.length) return res.json({ room: null });
+        const cutoff = new Date(Date.now() - 45000).toISOString();
+        const { data: offers } = await supabase
+          .from('call_signals').select('room')
+          .eq('sender', 'partner').eq('kind', 'offer').in('room', ids).gt('created_at', cutoff)
+          .order('id', { ascending: false }).limit(1);
+        return res.json({ room: offers && offers[0] ? offers[0].room : null });
+      }
+
       // ----- Return pickup partner portal (return-partner.html) -----
       // Per-partner login (id + password). Throttled like the other password
       // logins; customers are unaffected (they use OTP).
@@ -922,4 +964,38 @@ async function validatePartnerSession(token) {
   if (!data) return null;
   if (new Date(data.expires_at) < new Date()) return null;
   return data;
+}
+
+// Authorize a caller for a voice-call room (= order_id). Returns { role } where
+// role is 'partner' (assigned pickup partner OR delivery PIN on a live order) or
+// 'customer' (owns the order), else null.
+async function authCallRoom(req) {
+  const room = req.body && req.body.room;
+  if (!room) return null;
+  const token = getToken(req);
+
+  const partner = await validatePartnerSession(token);
+  if (partner) {
+    const { data } = await supabase.from('return_requests')
+      .select('id').eq('order_id', room).eq('assigned_partner_id', partner.partner_id).maybeSingle();
+    if (data) return { role: 'partner' };
+  }
+
+  const cs = await validateCustomerSession(token);
+  if (cs) {
+    const { data } = await supabase.from('orders')
+      .select('order_id').eq('order_id', room).eq('customer_phone', cs.phone).maybeSingle();
+    if (data) return { role: 'customer' };
+  }
+
+  // Delivery partner authenticates with the shared delivery PIN; allowed while
+  // the order is out for delivery.
+  if (req.body.pin) {
+    const { data: setting } = await supabase.from('platform_settings').select('value').eq('key', 'delivery_pin').maybeSingle();
+    if (String(req.body.pin) === String((setting && setting.value) || '5678')) {
+      const { data: ord } = await supabase.from('orders').select('status').eq('order_id', room).maybeSingle();
+      if (ord && ord.status === 'ready') return { role: 'partner' };
+    }
+  }
+  return null;
 }

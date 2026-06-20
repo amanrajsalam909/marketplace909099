@@ -294,6 +294,8 @@
 
   <div class="toast" id="toast"></div>
 
+  <script src="/call.js"></script>
+
   <!-- Review / Complaint modal -->
   <div id="fbModalBg" style="position:fixed;inset:0;background:rgba(15,23,42,0.5);display:none;align-items:center;justify-content:center;z-index:200;padding:20px">
     <div style="background:#fff;border-radius:14px;padding:22px;width:100%;max-width:420px;max-height:88vh;overflow-y:auto">
@@ -900,6 +902,22 @@
       }
     }).catch(() => {});
     loadOrders();
+
+    /* ---------- Incoming voice calls (WebRTC POC) ---------- */
+    function cbSignal(action, body) {
+      return fetch('/api/feedback', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cust.token },
+        body: JSON.stringify({ action, ...body })
+      }).then(r => r.json());
+    }
+    async function pollIncomingCall() {
+      if (!window.RMCall || RMCall.busy()) return;
+      let room = null;
+      try { const d = await cbSignal('call-incoming', {}); room = d && d.room; } catch (_) {}
+      if (room) { if (!RMCall.ringingRoom()) RMCall.incoming(room, cbSignal, 'Delivery / pickup partner'); }
+      else { RMCall.stopRinging(); }
+    }
+    setInterval(pollIncomingCall, 3000);
   </script>
 </body>
 </html>

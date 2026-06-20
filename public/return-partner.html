@@ -171,6 +171,7 @@
 
   <div class="toast" id="toast"></div>
 
+  <script src="/call.js"></script>
   <script>
     let TOKEN = sessionStorage.getItem('rpToken') || '';
     let NAME = sessionStorage.getItem('rpName') || '';
@@ -336,6 +337,7 @@
               <b>${esc(o.customer_name || r.customer_name || '')}</b> <span style="font-size:11px;color:var(--muted)">📞 number hidden for privacy</span>
               <div style="margin-top:6px">${addrHtml(o)}</div>
             </div>
+            <button class="btn-verify" data-call="${esc(r.order_id)}" style="width:100%;background:var(--indigo);margin-bottom:4px">📞 Call customer</button>
             ${r.status === 'Assigned'
               ? `<div class="otp-row">
                    <input data-otp="${esc(r.order_id)}" type="text" inputmode="numeric" maxlength="6" placeholder="Pickup code">
@@ -350,7 +352,17 @@
       }
     }
 
+    // WebRTC voice call: signal over /api/feedback with the partner token.
+    function rpSignal(action, body) {
+      return fetch('/api/feedback', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+        body: JSON.stringify({ action, ...body })
+      }).then(r => r.json());
+    }
+
     document.getElementById('list').addEventListener('click', async e => {
+      const call = e.target.closest('[data-call]');
+      if (call) { if (window.RMCall && !RMCall.busy()) RMCall.call(call.dataset.call, rpSignal, 'customer'); return; }
       const v = e.target.closest('[data-verify]');
       const pass = e.target.closest('[data-qc-pass]');
       const fail = e.target.closest('[data-qc-fail]');

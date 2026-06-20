@@ -168,6 +168,7 @@
 
   <div class="toast" id="toast"></div>
 
+  <script src="/call.js"></script>
   <script>
     let PIN = sessionStorage.getItem('deliveryPin') || '';
     let cashDone = {};   // orderId -> true once cash collected this session
@@ -281,6 +282,7 @@
                 ? `<button class="btn btn-cash" data-cash="${esc(o.order_id)}">💵 Cash Collected</button>`
                 : ''}
               <button class="btn btn-deliver" data-deliver="${esc(o.order_id)}" ${cashCollected ? '' : 'disabled'}>🔐 Enter Code & Deliver</button>
+              <button class="btn btn-ghost" data-call="${esc(o.order_id)}" title="Call customer">📞</button>
               <button class="btn btn-ghost" data-resend="${esc(o.order_id)}">↻</button>
             </div>
             ${isCod && !cashCollected ? '<div class="hint">Step 1: collect the cash → Step 2: ask the customer for their 6-digit code.</div>' : ''}
@@ -291,7 +293,17 @@
       }
     }
 
+    // WebRTC voice call: signal over /api/feedback authed by the delivery PIN.
+    function dpSignal(action, body) {
+      return fetch('/api/feedback', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, pin: PIN, ...body })
+      }).then(r => r.json());
+    }
+
     document.getElementById('activeList').addEventListener('click', async e => {
+      const callBtn = e.target.closest('[data-call]');
+      if (callBtn) { if (window.RMCall && !RMCall.busy()) RMCall.call(callBtn.dataset.call, dpSignal, 'customer'); return; }
       const cash = e.target.closest('[data-cash]');
       const deliver = e.target.closest('[data-deliver]');
       const resend = e.target.closest('[data-resend]');
