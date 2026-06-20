@@ -141,10 +141,11 @@
   <div class="pin-screen" id="pinScreen">
     <div class="pin-card">
       <h1>Rajkot<span>Market</span></h1>
-      <p>🛵 Delivery Partner — enter your PIN</p>
-      <input id="pinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
-      <button id="pinBtn">Unlock</button>
-      <div class="pin-err" id="pinErr">Wrong PIN — try again.</div>
+      <p>🛵 Delivery Partner — sign in</p>
+      <input id="loginId" type="text" placeholder="Login ID" autocomplete="username" autocapitalize="off" spellcheck="false" style="letter-spacing:normal;font-size:16px;text-align:left">
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" style="letter-spacing:normal;font-size:16px;text-align:left;margin-top:10px">
+      <button id="pinBtn">Sign in</button>
+      <div class="pin-err" id="pinErr">Wrong login id or password.</div>
     </div>
   </div>
 
@@ -170,7 +171,7 @@
 
   <script src="/call.js"></script>
   <script>
-    let PIN = sessionStorage.getItem('deliveryPin') || '';
+    let TOKEN = sessionStorage.getItem('deliveryToken') || '';
     let cashDone = {};   // orderId -> true once cash collected this session
 
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -207,37 +208,42 @@
     async function api(action, extra) {
       const res = await fetch('/api/delivery', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: PIN, action, ...(extra || {}) })
+        headers: { 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}) },
+        body: JSON.stringify({ action, ...(extra || {}) })
       });
       const data = await res.json();
-      if (res.status === 401) { lock(); throw new Error('Wrong PIN'); }
+      if (res.status === 401 && action !== 'login') { lock(); throw new Error('Session expired'); }
       if (!res.ok) throw new Error(data.error || 'Request failed');
       return data;
     }
 
-    /* ---- PIN gate ---- */
+    /* ---- Login gate (single session per account) ---- */
     async function unlock() {
-      PIN = document.getElementById('pinInput').value.trim();
+      const loginId = document.getElementById('loginId').value.trim();
+      const password = document.getElementById('password').value;
+      document.getElementById('pinErr').style.display = 'none';
       try {
-        await api('get-orders');
-        sessionStorage.setItem('deliveryPin', PIN);
+        const d = await api('login', { loginId, password });
+        TOKEN = d.token;
+        sessionStorage.setItem('deliveryToken', TOKEN);
         document.getElementById('pinScreen').style.display = 'none';
         document.getElementById('app').style.display = 'block';
         loadActive();
       } catch (e) {
-        document.getElementById('pinErr').style.display = 'block';
+        const err = document.getElementById('pinErr');
+        err.textContent = e.message || 'Wrong login id or password.';
+        err.style.display = 'block';
       }
     }
     document.getElementById('pinBtn').addEventListener('click', unlock);
-    document.getElementById('pinInput').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+    document.getElementById('password').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
 
     function lock() {
-      PIN = '';
-      sessionStorage.removeItem('deliveryPin');
+      TOKEN = '';
+      sessionStorage.removeItem('deliveryToken');
       document.getElementById('app').style.display = 'none';
       document.getElementById('pinScreen').style.display = 'flex';
-      document.getElementById('pinInput').value = '';
+      document.getElementById('password').value = '';
     }
 
     /* ---- Segments ---- */
@@ -293,11 +299,11 @@
       }
     }
 
-    // WebRTC voice call: signal over /api/feedback authed by the delivery PIN.
+    // WebRTC voice call: signal over /api/feedback authed by the delivery session.
     function dpSignal(action, body) {
       return fetch('/api/feedback', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, pin: PIN, ...body })
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+        body: JSON.stringify({ action, ...body })
       }).then(r => r.json());
     }
 
@@ -359,8 +365,8 @@
       }
     }
 
-    /* ---- Auto-unlock if PIN saved + refresh loop ---- */
-    if (PIN) {
+    /* ---- Auto-resume if a session is saved + refresh loop ---- */
+    if (TOKEN) {
       api('get-orders').then(() => {
         document.getElementById('pinScreen').style.display = 'none';
         document.getElementById('app').style.display = 'block';
@@ -368,7 +374,7 @@
       }).catch(() => lock());
     }
     setInterval(() => {
-      if (PIN && document.getElementById('activeList').style.display !== 'none') loadActive();
+      if (TOKEN && document.getElementById('activeList').style.display !== 'none') loadActive();
     }, 30000);
   </script>
 </body>

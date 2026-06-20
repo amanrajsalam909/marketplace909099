@@ -452,12 +452,16 @@
     <!-- SETTINGS -->
     <section class="panel" id="panel-settings">
       <div class="card">
-        <h3>🛵 Delivery partner PIN</h3>
-        <p style="font-size:13px;color:var(--muted);margin:-6px 0 12px">Delivery partners unlock <b>/delivery.html</b> with this PIN. Share it only with your delivery staff.</p>
-        <form id="pinForm" style="max-width:380px;display:flex;gap:10px">
-          <input id="newPin" type="text" inputmode="numeric" placeholder="4–8 digits" minlength="4" maxlength="8" required>
-          <button type="submit" class="btn btn-primary" style="white-space:nowrap">Update PIN</button>
-        </form>
+        <h3>🛵 Delivery partners</h3>
+        <p style="font-size:13px;color:var(--muted);margin:-6px 0 12px">Delivery partners sign into <b>/delivery.html</b> with their own login id &amp; password. One active session each — signing in on a new device logs the old one out.</p>
+        <div class="form-grid">
+          <div><label>Name</label><input id="dpNewName" type="text" placeholder="e.g. Suresh"></div>
+          <div><label>Login ID</label><input id="dpNewLogin" type="text" autocapitalize="off" placeholder="e.g. suresh1"></div>
+          <div><label>Phone</label><input id="dpNewPhone" type="text" placeholder="10-digit"></div>
+          <div><label>Password</label><input id="dpNewPass" type="text" placeholder="6+ characters"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="dpCreate" style="margin-top:8px">➕ Add delivery partner</button>
+        <div id="deliveryPartnersList" style="margin-top:14px"><div class="state">Loading…</div></div>
       </div>
       <div class="card">
         <h3>🔑 Change admin password</h3>
@@ -1636,12 +1640,58 @@
     });
 
     /* ---------- Settings ---------- */
-    document.getElementById('pinForm').addEventListener('submit', async e => {
-      e.preventDefault();
+    /* ---- Delivery partners (per-account logins) ---- */
+    async function loadDeliveryPartners() {
+      const el = document.getElementById('deliveryPartnersList');
       try {
-        await apiPost({ action: 'set-delivery-pin', pin: document.getElementById('newPin').value.trim() });
-        toast('Delivery PIN updated');
-        e.target.reset();
+        const list = await apiGet('delivery-partners');
+        if (!list.length) { el.innerHTML = '<div class="state">No delivery partners yet — add one above.</div>'; return; }
+        el.innerHTML = list.map(p => `
+          <div class="list-row" style="align-items:center">
+            <div class="row-info">
+              <div class="row-title">${esc(p.name)}
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${p.active ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b'}">${p.active ? 'Active' : 'Disabled'}</span>
+              </div>
+              <div class="row-sub">id: <b>${esc(p.login_id)}</b>${p.phone ? ' · 📞 ' + esc(p.phone) : ''}</div>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-outline btn-sm" data-dp-pass="${p.id}">Reset password</button>
+              <button class="btn btn-outline btn-sm" data-dp-toggle="${p.id}" data-active="${p.active}">${p.active ? 'Disable' : 'Enable'}</button>
+            </div>
+          </div>`).join('');
+      } catch (e) {
+        el.innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+    document.getElementById('dpCreate').addEventListener('click', async () => {
+      const name = document.getElementById('dpNewName').value.trim();
+      const loginId = document.getElementById('dpNewLogin').value.trim();
+      const phone = document.getElementById('dpNewPhone').value.trim();
+      const password = document.getElementById('dpNewPass').value;
+      if (!name || !loginId || password.length < 6) { toast('Name, login id and a 6+ char password are required.'); return; }
+      try {
+        await apiPost({ action: 'create-delivery-partner', name, loginId, phone, password });
+        toast('Delivery partner added');
+        ['dpNewName', 'dpNewLogin', 'dpNewPhone', 'dpNewPass'].forEach(i => document.getElementById(i).value = '');
+        loadDeliveryPartners();
+      } catch (err) { toast(err.message); }
+    });
+    document.getElementById('deliveryPartnersList').addEventListener('click', async e => {
+      const pass = e.target.closest('[data-dp-pass]');
+      const toggle = e.target.closest('[data-dp-toggle]');
+      try {
+        if (pass) {
+          const pw = prompt('New password for this delivery partner (6+ characters):');
+          if (pw === null) return;
+          if (pw.length < 6) { toast('Password must be 6+ characters.'); return; }
+          await apiPost({ action: 'update-delivery-partner', partnerId: pass.dataset.dpPass, password: pw });
+          toast('Password updated (other devices signed out)');
+        } else if (toggle) {
+          const makeActive = toggle.dataset.active !== 'true';
+          await apiPost({ action: 'update-delivery-partner', partnerId: toggle.dataset.dpToggle, active: makeActive });
+          toast(makeActive ? 'Partner enabled' : 'Partner disabled');
+          loadDeliveryPartners();
+        }
       } catch (err) { toast(err.message); }
     });
 
@@ -1869,6 +1919,7 @@
         if (tab.dataset.tab === 'returns') loadReturns();
         if (tab.dataset.tab === 'refunds') loadRefunds();
         if (tab.dataset.tab === 'exchanges') loadExchanges();
+        if (tab.dataset.tab === 'settings') loadDeliveryPartners();
         if (tab.dataset.tab === 'products') loadProducts();
         updateExportLabel();
       });

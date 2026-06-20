@@ -2,6 +2,7 @@ const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 const crypto = require('crypto');
 const { findSession, getToken } = require('../lib/sessions');
+const { hashPassword } = require('../lib/password');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -97,6 +98,16 @@ module.exports = async (req, res) => {
         return res.json(data);
       }
 
+      // Delivery partners roster (never expose password_hash).
+      if (action === 'delivery-partners') {
+        const { data, error } = await supabase
+          .from('delivery_partners')
+          .select('id, name, login_id, phone, active, created_at')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        return res.json(data || []);
+      }
+
       // Products with their return photo-QC flag (admin sets which items need
       // the 4-angle inspection at pickup).
       if (action === 'products') {
@@ -113,6 +124,42 @@ module.exports = async (req, res) => {
 
     if (req.method === 'POST') {
       const { action } = req.body;
+
+      // ---------- Delivery partners (per-account logins) ----------
+      if (action === 'create-delivery-partner') {
+        const name = String(req.body.name || '').trim().slice(0, 120);
+        const loginId = String(req.body.loginId || '').trim().toLowerCase();
+        const password = String(req.body.password || '');
+        const phone = String(req.body.phone || '').replace(/\D/g, '').slice(-10);
+        if (!name || !loginId || password.length < 6) {
+          return res.status(400).json({ error: 'Name, login id and a password of 6+ characters are required.' });
+        }
+        const { error } = await supabase.from('delivery_partners').insert({
+          name, login_id: loginId, phone, password_hash: await hashPassword(password)
+        });
+        if (error) {
+          if (error.code === '23505') return res.status(400).json({ error: 'That login id is already taken.' });
+          throw error;
+        }
+        return res.json({ success: true });
+      }
+      if (action === 'update-delivery-partner') {
+        const upd = { updated_at: new Date().toISOString() };
+        if (req.body.name !== undefined)  upd.name = String(req.body.name || '').trim().slice(0, 120);
+        if (req.body.phone !== undefined) upd.phone = String(req.body.phone || '').replace(/\D/g, '').slice(-10);
+        if (req.body.active !== undefined) upd.active = req.body.active === true;
+        if (req.body.password) {
+          if (String(req.body.password).length < 6) return res.status(400).json({ error: 'Password must be 6+ characters.' });
+          upd.password_hash = await hashPassword(String(req.body.password));
+        }
+        // Disabling a partner also drops their active session.
+        if (upd.active === false || upd.password_hash) {
+          await supabase.from('delivery_sessions').delete().eq('delivery_partner_id', req.body.partnerId);
+        }
+        const { error } = await supabase.from('delivery_partners').update(upd).eq('id', req.body.partnerId);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
 
       // ---------- Per-product return photo-QC flag (admin only) ----------
       if (action === 'set-product-qc') {

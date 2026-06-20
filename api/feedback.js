@@ -997,14 +997,12 @@ async function authCallRoom(req) {
     if (data) return { role: 'customer' };
   }
 
-  // Delivery partner authenticates with the shared delivery PIN; allowed while
-  // the order is out for delivery.
-  if (req.body.pin) {
-    const { data: setting } = await supabase.from('platform_settings').select('value').eq('key', 'delivery_pin').maybeSingle();
-    if (String(req.body.pin) === String((setting && setting.value) || '5678')) {
-      const { data: ord } = await supabase.from('orders').select('status').eq('order_id', room).maybeSingle();
-      if (ord && ord.status === 'ready') return { role: 'partner' };
-    }
+  // Delivery partner (own account session) — allowed while the order is out
+  // for delivery.
+  const dp = token && await findSession('delivery_sessions', token, 'delivery_partner_id, expires_at');
+  if (dp && new Date(dp.expires_at) > new Date()) {
+    const { data: ord } = await supabase.from('orders').select('status').eq('order_id', room).maybeSingle();
+    if (ord && ord.status === 'ready') return { role: 'partner' };
   }
   return null;
 }

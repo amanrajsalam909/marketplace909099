@@ -1,10 +1,14 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
 const { sendStatusUpdate, sendDeliveryOtp } = require('../lib/email');
+const { newSessionToken, findSession, getToken } = require('../lib/sessions');
+const { verifyPassword, hashPassword } = require('../lib/password');
+const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
 const crypto = require('crypto');
 
 const MAX_OTP_ATTEMPTS = 5;
 const DELIVERY_OTP_TTL_MS = 60 * 60 * 1000;
+const DELIVERY_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 // Unambiguous alphabet (no I/O/0/1) for delivery proof IDs
 function deliveryProofId() {
@@ -14,24 +18,59 @@ function deliveryProofId() {
   return id;
 }
 
-async function verifyPin(pin) {
-  const { data } = await supabase
-    .from('platform_settings').select('value').eq('key', 'delivery_pin').single();
-  return String(pin || '') === String(data?.value || '5678');
+async function validateDeliverySession(token) {
+  if (!token) return null;
+  const data = await findSession('delivery_sessions', token, 'delivery_partner_id, expires_at');
+  if (!data) return null;
+  if (new Date(data.expires_at) < new Date()) return null;
+  return data;
 }
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (!guard(req, res)) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { action, pin, orderId, otp } = req.body || {};
+  const { action, orderId, otp } = req.body || {};
 
   try {
-    if (!(await verifyPin(pin))) return res.status(401).json({ error: 'Wrong PIN' });
+    // Per-partner login (id + password). Single session per account: signing in
+    // here invalidates the partner's session on every other device.
+    if (action === 'login') {
+      const loginId = String(req.body.loginId || '').trim().toLowerCase();
+      const password = String(req.body.password || '');
+      if (!loginId || !password) return res.status(400).json({ error: 'Enter your login id and password.' });
+
+      const ident = 'delivery:' + loginId;
+      const block = await checkBlocked(ident);
+      if (block.blocked) return res.status(429).json({ error: `Too many attempts. Try again in ${Math.ceil(block.retryAfter / 60)} min.` });
+
+      const { data: p } = await supabase
+        .from('delivery_partners').select('*').eq('login_id', loginId).maybeSingle();
+      const check = p ? await verifyPassword(password, p.password_hash) : { ok: false };
+      if (!p || !p.active || !check.ok) {
+        await recordFailure(ident);
+        return res.status(401).json({ error: 'Wrong login id or password.' });
+      }
+      await clearFailures(ident);
+      if (check.needsRehash) {
+        await supabase.from('delivery_partners').update({ password_hash: await hashPassword(password) }).eq('id', p.id);
+      }
+      const { token, stored } = newSessionToken();
+      await supabase.from('delivery_sessions').delete().eq('delivery_partner_id', p.id);   // single session
+      await supabase.from('delivery_sessions').insert({
+        token: stored, delivery_partner_id: p.id,
+        expires_at: new Date(Date.now() + DELIVERY_SESSION_TTL_MS).toISOString()
+      });
+      return res.json({ token, name: p.name });
+    }
+
+    // Every other action requires a valid delivery session.
+    const partner = await validateDeliverySession(getToken(req));
+    if (!partner) return res.status(401).json({ error: 'Session expired — please sign in again.' });
 
     // Active deliveries: everything currently out for delivery
     if (action === 'get-orders') {
