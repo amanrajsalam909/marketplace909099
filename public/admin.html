@@ -1054,7 +1054,7 @@
           </h3>
           <div class="table-wrap">
             <table class="cards">
-              <thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th><th>When</th></tr></thead>
+              <thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th><th>When</th><th>Action</th></tr></thead>
               <tbody>
                 ${grp.orders.map(o => `
                   <tr>
@@ -1064,6 +1064,7 @@
                     <td data-label="Payment">${esc(o.payment_method)}<br><span style="color:var(--muted);font-size:11px">${esc(o.payment_status || '')}</span></td>
                     <td data-label="Status"><span class="pill ${esc(o.status)}">${esc(o.status)}</span></td>
                     <td data-label="When">${o.created_at ? new Date(o.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}</td>
+                    <td data-label="Action">${['delivered', 'cancelled'].includes(o.status) ? '<span style="color:var(--muted);font-size:11px">—</span>' : `<button class="btn btn-outline btn-sm" data-cancel-order="${esc(o.order_id)}" style="color:var(--red);border-color:#fecaca">✖ Cancel</button>`}</td>
                   </tr>`).join('')}
               </tbody>
             </table>
@@ -1073,6 +1074,21 @@
     }
 
     document.getElementById('ordVendorFilter').addEventListener('change', renderOrders);
+
+    // Admin order cancellation (restores stock, emails the customer).
+    document.getElementById('ordersTable').addEventListener('click', async e => {
+      const btn = e.target.closest('[data-cancel-order]');
+      if (!btn) return;
+      const orderId = btn.dataset.cancelOrder;
+      const reason = prompt('Cancel ' + orderId + '? Stock is restored and the customer is emailed.\n\nReason (optional, emailed to the customer):');
+      if (reason === null) return;
+      btn.disabled = true; btn.textContent = 'Cancelling…';
+      try {
+        await apiPost({ action: 'cancel-order', orderId, reason });
+        toast('Order cancelled · stock restored · customer emailed');
+        loadOrders();
+      } catch (err) { toast(err.message); btn.disabled = false; btn.innerHTML = '✖ Cancel'; }
+    });
 
     /* ---------- Payments ---------- */
     async function loadPayments() {

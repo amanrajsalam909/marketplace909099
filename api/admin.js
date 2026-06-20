@@ -3,6 +3,7 @@ const supabase = require('../lib/supabase');
 const crypto = require('crypto');
 const { findSession, getToken } = require('../lib/sessions');
 const { hashPassword } = require('../lib/password');
+const { sendStatusUpdate } = require('../lib/email');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -158,6 +159,21 @@ module.exports = async (req, res) => {
         }
         const { error } = await supabase.from('delivery_partners').update(upd).eq('id', req.body.partnerId);
         if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      // ---------- Cancel an order (admin override) ----------
+      if (action === 'cancel-order') {
+        const orderId = req.body.orderId;
+        const reason = String(req.body.reason || '').trim().slice(0, 300);
+        const { data: ord } = await supabase
+          .from('orders').select('order_id, status, customer_email').eq('order_id', orderId).maybeSingle();
+        if (!ord) return res.status(404).json({ error: 'Order not found.' });
+        const { error } = await supabase.rpc('admin_cancel_order', {
+          p_order_id: orderId, p_reason: reason || 'Cancelled by admin'
+        });
+        if (error) return res.status(400).json({ error: error.message });
+        if (ord.customer_email) sendStatusUpdate(ord.customer_email, orderId, 'cancelled').catch(() => {});
         return res.json({ success: true });
       }
 
