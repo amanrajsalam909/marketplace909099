@@ -283,6 +283,7 @@
         <button class="tab" data-tab="refunds">Refunds</button>
         <button class="tab" data-tab="exchanges">Exchanges</button>
         <button class="tab" data-tab="products">Products</button>
+        <button class="tab" data-tab="spectemplates">Specifications</button>
         <button class="tab" data-tab="settings">Settings</button>
       </div>
       <div class="export-wrap" id="exportWrap">
@@ -409,6 +410,26 @@
         <input id="prodSearch" type="text" placeholder="Search products by name, category or shop…" style="width:100%;margin-bottom:12px">
         <div id="productsList"><div class="state">Loading…</div></div>
       </div>
+    </section>
+
+    <!-- SPECIFICATION TEMPLATES -->
+    <section class="panel" id="panel-spectemplates">
+      <div class="card">
+        <h3 id="specFormTitle">➕ New specification template</h3>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 14px">Build a reusable spec template for a product type (Fashion, Electronics, Utensils…). Each field is a <b>pickable choice list</b> — list every possible option here; vendors then tick which options their product actually has, and customers pick one when buying.</p>
+        <input type="hidden" id="specId">
+        <div style="max-width:360px;margin-bottom:14px">
+          <label>Template name *</label>
+          <input id="specName" type="text" placeholder="e.g. Fashion / Apparel">
+        </div>
+        <div id="specFields"></div>
+        <button type="button" class="btn btn-outline btn-sm" id="specAddField" style="margin-top:6px">+ Add spec field</button>
+        <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn btn-primary" id="specSaveBtn">Save template</button>
+          <button type="button" class="btn btn-outline" id="specResetBtn" style="display:none">Cancel edit</button>
+        </div>
+      </div>
+      <div id="specTemplatesList"><div class="state">Loading templates…</div></div>
     </section>
 
     <section class="panel" id="panel-returns">
@@ -1655,6 +1676,130 @@
       cb.disabled = false;
     });
 
+    /* ---------- Specification templates (pickable-choice specs) ---------- */
+    let lastSpecTemplates = [];
+
+    function specFieldRow(label, options) {
+      const row = document.createElement('div');
+      row.className = 'spec-field-row';
+      row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px';
+      row.innerHTML = `
+        <div style="flex:1;min-width:140px"><label>Field name</label><input class="sf-label" type="text" placeholder="e.g. Size"></div>
+        <div style="flex:2;min-width:200px"><label>Options (comma-separated)</label><input class="sf-options" type="text" placeholder="e.g. XS, S, M, L, XL, XXL, XXXL"></div>
+        <button type="button" class="btn btn-outline btn-sm sf-remove">✕</button>`;
+      row.querySelector('.sf-label').value = label || '';
+      row.querySelector('.sf-options').value = (options || []).join(', ');
+      row.querySelector('.sf-remove').addEventListener('click', () => row.remove());
+      return row;
+    }
+
+    function resetSpecForm() {
+      document.getElementById('specId').value = '';
+      document.getElementById('specName').value = '';
+      const box = document.getElementById('specFields');
+      box.innerHTML = '';
+      box.appendChild(specFieldRow('', []));
+      document.getElementById('specFormTitle').textContent = '➕ New specification template';
+      document.getElementById('specResetBtn').style.display = 'none';
+    }
+
+    function editSpecTemplate(t) {
+      document.getElementById('specId').value = t.id;
+      document.getElementById('specName').value = t.name || '';
+      const box = document.getElementById('specFields');
+      box.innerHTML = '';
+      (t.fields || []).forEach(f => box.appendChild(specFieldRow(f.label, f.options)));
+      if (!box.children.length) box.appendChild(specFieldRow('', []));
+      document.getElementById('specFormTitle').textContent = '✏️ Edit template — ' + (t.name || '');
+      document.getElementById('specResetBtn').style.display = '';
+      document.getElementById('panel-spectemplates').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function readSpecForm() {
+      const fields = [...document.querySelectorAll('#specFields .spec-field-row')].map(r => ({
+        label: r.querySelector('.sf-label').value.trim(),
+        options: r.querySelector('.sf-options').value.split(',').map(s => s.trim()).filter(Boolean)
+      })).filter(f => f.label && f.options.length);
+      return { id: document.getElementById('specId').value || undefined, name: document.getElementById('specName').value.trim(), fields };
+    }
+
+    document.getElementById('specAddField').addEventListener('click', () => {
+      document.getElementById('specFields').appendChild(specFieldRow('', []));
+    });
+    document.getElementById('specResetBtn').addEventListener('click', resetSpecForm);
+
+    document.getElementById('specSaveBtn').addEventListener('click', async () => {
+      const body = readSpecForm();
+      if (!body.name) return toast('Give the template a name.');
+      if (!body.fields.length) return toast('Add at least one field with options.');
+      const btn = document.getElementById('specSaveBtn');
+      btn.disabled = true;
+      try {
+        await apiPost({ action: 'save-spec-template', ...body });
+        toast('Template saved');
+        resetSpecForm();
+        loadSpecTemplates();
+      } catch (e) { toast(e.message); }
+      btn.disabled = false;
+    });
+
+    function renderSpecTemplates() {
+      const el = document.getElementById('specTemplatesList');
+      if (!lastSpecTemplates.length) {
+        el.innerHTML = '<div class="state">No templates yet — build your first one above.</div>';
+        return;
+      }
+      el.innerHTML = lastSpecTemplates.map(t => `
+        <div class="list-row" style="align-items:center">
+          <div class="row-info">
+            <div class="row-title">${esc(t.name)}${t.is_active ? '' : ' <span style="font-size:11px;color:var(--muted)">(hidden)</span>'}</div>
+            <div class="row-sub">${(t.fields || []).map(f => `<b>${esc(f.label)}</b>: ${esc((f.options || []).join(', '))}`).join(' &nbsp;·&nbsp; ') || 'No fields'}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" data-spec-edit="${t.id}">Edit</button>
+            <button class="btn btn-outline btn-sm" data-spec-toggle="${t.id}" data-active="${t.is_active}">${t.is_active ? 'Hide' : 'Show'}</button>
+            <button class="btn btn-outline btn-sm" data-spec-del="${t.id}">Delete</button>
+          </div>
+        </div>`).join('');
+    }
+
+    async function loadSpecTemplates() {
+      if (!document.getElementById('specFields').children.length) resetSpecForm();
+      try {
+        lastSpecTemplates = await apiGet('spec-templates');
+        renderSpecTemplates();
+      } catch (e) {
+        document.getElementById('specTemplatesList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    document.getElementById('specTemplatesList').addEventListener('click', async e => {
+      const ed = e.target.closest('[data-spec-edit]');
+      const tg = e.target.closest('[data-spec-toggle]');
+      const dl = e.target.closest('[data-spec-del]');
+      if (ed) {
+        const t = lastSpecTemplates.find(x => x.id === ed.dataset.specEdit);
+        if (t) editSpecTemplate(t);
+        return;
+      }
+      if (tg) {
+        const t = lastSpecTemplates.find(x => x.id === tg.dataset.specToggle);
+        if (!t) return;
+        try {
+          await apiPost({ action: 'save-spec-template', id: t.id, name: t.name, fields: t.fields, is_active: tg.dataset.active !== 'true', sort_order: t.sort_order });
+          loadSpecTemplates();
+        } catch (err) { toast(err.message); }
+        return;
+      }
+      if (dl) {
+        if (!confirm('Delete this template? Products using it keep their saved specs but lose the link.')) return;
+        try {
+          await apiPost({ action: 'delete-spec-template', id: dl.dataset.specDel });
+          loadSpecTemplates();
+        } catch (err) { toast(err.message); }
+      }
+    });
+
     /* ---------- Settings ---------- */
     /* ---- Delivery partners (per-account logins) ---- */
     async function loadDeliveryPartners() {
@@ -1937,6 +2082,7 @@
         if (tab.dataset.tab === 'exchanges') loadExchanges();
         if (tab.dataset.tab === 'settings') loadDeliveryPartners();
         if (tab.dataset.tab === 'products') loadProducts();
+        if (tab.dataset.tab === 'spectemplates') loadSpecTemplates();
         updateExportLabel();
       });
     });

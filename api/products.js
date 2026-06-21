@@ -40,7 +40,9 @@ module.exports = async (req, res) => {
         price: parseFloat(product.price) || 0,
         stock: Math.max(0, Math.trunc(Number(product.stock)) || 0),
         image_url: product.imageUrl || product.image_url || '',
-        active: product.active !== false
+        active: product.active !== false,
+        spec_template_id: product.spec_template_id || null,
+        specs: Array.isArray(product.specs) ? product.specs : []
       };
 
       // Optional vendor-supplied product number (5-char base36). When omitted,

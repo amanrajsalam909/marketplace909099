@@ -120,6 +120,17 @@ module.exports = async (req, res) => {
         return res.json(data || []);
       }
 
+      // ---------- Specification templates (pickable-choice specs) ----------
+      if (action === 'spec-templates') {
+        const { data, error } = await supabase
+          .from('spec_templates')
+          .select('id, name, fields, is_active, sort_order')
+          .order('sort_order', { ascending: true })
+          .order('name', { ascending: true });
+        if (error) throw error;
+        return res.json(data || []);
+      }
+
       return res.status(400).json({ error: 'Invalid action' });
     }
 
@@ -410,6 +421,44 @@ module.exports = async (req, res) => {
         return res.json({ success: true });
       }
 
+      // ---------- Specification templates (pickable-choice specs) ----------
+      if (action === 'save-spec-template') {
+        const name = String(req.body.name || '').trim().slice(0, 120);
+        if (!name) return res.status(400).json({ error: 'Template name is required.' });
+
+        const fields = normalizeSpecFields(req.body.fields);
+        if (!fields.length) {
+          return res.status(400).json({ error: 'Add at least one spec field with one or more options.' });
+        }
+
+        const row = {
+          name,
+          fields,
+          is_active: req.body.is_active !== false,
+          sort_order: Math.trunc(Number(req.body.sort_order)) || 0,
+          updated_at: new Date().toISOString()
+        };
+
+        if (req.body.id) {
+          const { error } = await supabase.from('spec_templates').update(row).eq('id', req.body.id);
+          if (error) throw error;
+          return res.json({ success: true, id: req.body.id });
+        }
+        const { data, error } = await supabase.from('spec_templates').insert(row).select('id').single();
+        if (error) throw error;
+        return res.json({ success: true, id: data.id });
+      }
+
+      if (action === 'delete-spec-template') {
+        const { id } = req.body;
+        if (!id) return res.status(400).json({ error: 'id required' });
+        // products.spec_template_id is ON DELETE SET NULL, so products keep their
+        // denormalized specs snapshot and simply lose the template link.
+        const { error } = await supabase.from('spec_templates').delete().eq('id', id);
+        if (error) throw error;
+        return res.json({ success: true });
+      }
+
       return res.status(400).json({ error: 'Invalid action' });
     }
 
@@ -418,6 +467,43 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+// Sanitise an admin-submitted spec-template field list into a stable shape:
+// [{key, label, options[]}]. Each field needs a label + at least one option;
+// keys are slugified from the label and de-duped so the vendor/customer code
+// can address fields reliably.
+function normalizeSpecFields(input) {
+  if (!Array.isArray(input)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const f of input) {
+    if (!f || typeof f !== 'object') continue;
+    const label = String(f.label || '').trim().slice(0, 60);
+    if (!label) continue;
+
+    const options = [];
+    const optSeen = new Set();
+    for (const o of (Array.isArray(f.options) ? f.options : [])) {
+      const opt = String(o).trim().slice(0, 60);
+      if (!opt) continue;
+      const dedupe = opt.toLowerCase();
+      if (optSeen.has(dedupe)) continue;
+      optSeen.add(dedupe);
+      options.push(opt);
+      if (options.length >= 100) break;
+    }
+    if (!options.length) continue;
+
+    let key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'field';
+    let unique = key, n = 2;
+    while (seen.has(unique)) unique = `${key}_${n++}`;
+    seen.add(unique);
+
+    out.push({ key: unique, label, options });
+    if (out.length >= 30) break;
+  }
+  return out;
+}
 
 function period(days) {
   const to = new Date(Date.now() + 60 * 1000).toISOString();

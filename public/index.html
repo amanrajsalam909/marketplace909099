@@ -757,26 +757,74 @@
       content.innerHTML = offersHtml + ratingHtml + policyHtml + '<div class="products-grid">' + list.map(p => {
         const out = typeof p.stock === 'number' && p.stock <= 0;
         const low = !out && typeof p.stock === 'number' && p.stock <= 5;
+        const hasSpecs = Array.isArray(p.specs) && p.specs.length > 0;
         return `
-        <div class="product-card" style="${out ? 'opacity:0.6' : ''}">
+        <div class="product-card" data-prod="${p.id}" style="cursor:pointer;${out ? 'opacity:0.6' : ''}">
           <div class="product-image">${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}">` : '🛍️'}</div>
           <div class="product-body">
             <div class="product-category">${esc(p.category || 'General')}${p.product_no ? ' · #' + esc(p.product_no) : ''}</div>
             <div class="product-name">${esc(p.name)}</div>
             ${ratingBadge(p.id)}
             <div class="product-desc">${esc(p.description || '')}${low ? ' <span style="color:#d97706;font-weight:600">Only ' + p.stock + ' left!</span>' : ''}</div>
+            ${hasSpecs ? `<div style="font-size:11px;color:var(--primary);font-weight:600;margin-top:2px">${p.specs.map(s => esc(s.label)).join(' · ')} →</div>` : ''}
             <div class="product-footer">
               <div class="product-price">${inr(p.price)}</div>
               ${out
                 ? '<span style="font-size:12px;font-weight:700;color:#dc2626">Out of stock</span>'
-                : `<button class="add-btn" data-add="${p.id}">Add</button>`}
+                : `<button class="add-btn" data-add="${p.id}"${hasSpecs ? ' data-options="1"' : ''}>${hasSpecs ? 'Choose' : 'Add'}</button>`}
             </div>
           </div>
         </div>`;
       }).join('') + '</div>';
     }
 
-    function addToCart(productId) {
+    // Product detail popup — shows specs and lets the customer pick one value
+    // per spec field before adding to cart. Reuses the shared modal.
+    function openProductDetail(productId) {
+      const p = state.products.find(x => String(x.id) === String(productId));
+      if (!p) return;
+      const out = typeof p.stock === 'number' && p.stock <= 0;
+      const specs = Array.isArray(p.specs) ? p.specs : [];
+
+      const specsHtml = specs.map((s, fi) => `
+        <div style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:6px">${esc(s.label)}</div>
+          <div class="pd-opts" data-key="${esc(s.key)}" data-label="${esc(s.label)}" style="display:flex;flex-wrap:wrap;gap:8px">
+            ${(s.options || []).map((o, oi) => `
+              <button type="button" class="pd-opt" data-opt="${esc(o)}" aria-pressed="${(s.options.length === 1 || oi === 0) ? 'true' : 'false'}"
+                style="cursor:pointer;font-size:13px;font-weight:600;padding:7px 14px;border-radius:999px;border:1px solid ${(s.options.length === 1 || oi === 0) ? 'var(--primary)' : 'var(--border)'};${(s.options.length === 1 || oi === 0) ? 'background:var(--primary);color:#fff' : 'background:#fff;color:var(--dark)'}">${esc(o)}</button>
+            `).join('')}
+          </div>
+        </div>`).join('');
+
+      openModal(p.name, `
+        <div style="max-height:70vh;overflow:auto">
+          ${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" style="width:100%;max-height:240px;object-fit:cover;border-radius:10px;margin-bottom:12px">` : ''}
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--primary)">${esc(p.category || 'General')}${p.product_no ? ' · #' + esc(p.product_no) : ''}</div>
+          <div style="font-size:20px;font-weight:800;color:var(--dark);margin:6px 0">${inr(p.price)}</div>
+          ${p.description ? `<div style="font-size:13px;color:var(--muted);margin-bottom:14px">${esc(p.description)}</div>` : '<div style="margin-bottom:8px"></div>'}
+          ${specsHtml}
+          ${out
+            ? '<div style="font-size:13px;font-weight:700;color:#dc2626;margin-top:8px">Out of stock</div>'
+            : `<button id="pdAdd" data-prod-add="${p.id}" class="btn-primary" style="width:100%;margin-top:8px;padding:12px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer">Add to cart</button>`}
+        </div>`);
+
+      // Single-select per field
+      document.getElementById('modalBody').querySelectorAll('.pd-opts').forEach(group => {
+        group.addEventListener('click', e => {
+          const chip = e.target.closest('.pd-opt');
+          if (!chip) return;
+          group.querySelectorAll('.pd-opt').forEach(c => {
+            c.setAttribute('aria-pressed', 'false');
+            c.style.border = '1px solid var(--border)'; c.style.background = '#fff'; c.style.color = 'var(--dark)';
+          });
+          chip.setAttribute('aria-pressed', 'true');
+          chip.style.border = '1px solid var(--primary)'; chip.style.background = 'var(--primary)'; chip.style.color = '#fff';
+        });
+      });
+    }
+
+    function addToCart(productId, specs) {
       const p = state.products.find(x => String(x.id) === String(productId));
       if (!p || !state.currentVendor) return;
 
@@ -793,7 +841,9 @@
         state.cart = [];
       }
 
-      const existing = state.cart.find(i => String(i.id) === String(p.id) && i.vendor_id === state.currentVendor.id);
+      const chosen = specs && Object.keys(specs).length ? specs : null;
+      const sameSpecs = i => JSON.stringify(i.specs || null) === JSON.stringify(chosen);
+      const existing = state.cart.find(i => String(i.id) === String(p.id) && i.vendor_id === state.currentVendor.id && sameSpecs(i));
       if (existing) existing.quantity++;
       else state.cart.push({
         id: p.id,
@@ -801,19 +851,48 @@
         price: Number(p.price),
         vendor_id: state.currentVendor.id,
         vendor_name: state.currentVendor.name,
-        quantity: 1
+        quantity: 1,
+        specs: chosen
       });
 
       localStorage.setItem('cart', JSON.stringify(state.cart));
       updateCartCount();
-      toast(p.name + ' added to cart');
+      const tag = chosen ? ' (' + Object.values(chosen).join(' / ') + ')' : '';
+      toast(p.name + tag + ' added to cart');
+    }
+
+    // Read the selected option per field from the open detail popup.
+    function readDetailSpecs() {
+      const groups = [...document.getElementById('modalBody').querySelectorAll('.pd-opts')];
+      const out = {};
+      for (const g of groups) {
+        const sel = g.querySelector('.pd-opt[aria-pressed="true"]');
+        if (!sel) return { error: g.dataset.label };
+        out[g.dataset.label] = sel.dataset.opt;
+      }
+      return { specs: out };
     }
 
     content.addEventListener('click', e => {
       const addBtn = e.target.closest('[data-add]');
-      if (addBtn) return addToCart(addBtn.dataset.add);
+      if (addBtn) {
+        if (addBtn.dataset.options) return openProductDetail(addBtn.dataset.add);
+        return addToCart(addBtn.dataset.add);
+      }
+      const prodCard = e.target.closest('[data-prod]');
+      if (prodCard) return openProductDetail(prodCard.dataset.prod);
       const card = e.target.closest('[data-vendor]');
       if (card) openVendor(card.dataset.vendor);
+    });
+
+    // Add-to-cart from inside the detail popup
+    document.getElementById('modalBody').addEventListener('click', e => {
+      const btn = e.target.closest('[data-prod-add]');
+      if (!btn) return;
+      const r = readDetailSpecs();
+      if (r.error) return toast('Please choose a ' + r.error);
+      addToCart(btn.dataset.prodAdd, r.specs);
+      closeModal();
     });
 
     backBtn.addEventListener('click', () => {

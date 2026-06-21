@@ -75,12 +75,25 @@ module.exports = async (req, res) => {
         return res.json(data);
       }
 
+      if (action === 'spec-templates') {
+        const { data, error } = await supabase
+          .from('spec_templates')
+          .select('id, name, fields, sort_order')
+          .eq('is_active', true)
+          .order('sort_order')
+          .order('name');
+
+        if (error) throw error;
+        edgeCache(res, 300, 3600);
+        return res.json(data);
+      }
+
       if (action === 'products') {
         const { vendorId } = req.query;
 
         let query = supabase
           .from('products')
-          .select('id, name, category, description, price, stock, image_url, vendor_id, active, product_no')
+          .select('id, name, category, description, price, stock, image_url, vendor_id, active, product_no, spec_template_id, specs')
           .eq('active', true);
 
         if (vendorId) {

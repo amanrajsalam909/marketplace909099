@@ -311,6 +311,7 @@
               <div class="cart-item">
                 <div class="item-info">
                   <div class="item-name">${esc(i.name)}</div>
+                  ${i.specs ? `<div class="item-unit" style="color:var(--dark)">${Object.entries(i.specs).map(([k, v]) => esc(k) + ': ' + esc(v)).join(' · ')}</div>` : ''}
                   <div class="item-unit">${inr(i.price)} each</div>
                 </div>
                 <div class="stepper">
