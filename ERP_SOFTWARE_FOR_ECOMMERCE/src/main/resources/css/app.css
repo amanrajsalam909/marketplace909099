@@ -1,0 +1,122 @@
+/* RajkotMarket ERP — desktop theme */
+
+.root {
+    -fx-font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    -fx-font-size: 13px;
+    -primary: #2563eb;
+    -primary-dark: #1d4ed8;
+    -danger: #dc2626;
+    -bg: #f5f6f8;
+    -sidebar-bg: #1e293b;
+}
+
+.app-root { -fx-background-color: -bg; }
+
+/* ---- Sidebar ---- */
+.sidebar { -fx-background-color: -sidebar-bg; }
+.sidebar-brand { -fx-text-fill: white; -fx-font-size: 18px; -fx-font-weight: bold; }
+.sidebar-brand-sub { -fx-text-fill: #94a3b8; -fx-font-size: 12px; -fx-padding: 0 0 6 0; }
+.sidebar .separator .line { -fx-border-color: #334155; }
+.nav-group { -fx-text-fill: #64748b; -fx-font-size: 10px; -fx-font-weight: bold; -fx-padding: 10 0 2 4; }
+
+.nav-button {
+    -fx-background-color: transparent; -fx-text-fill: #cbd5e1;
+    -fx-alignment: center-left; -fx-padding: 9 12; -fx-background-radius: 8; -fx-cursor: hand;
+}
+.nav-button:hover { -fx-background-color: #334155; -fx-text-fill: white; }
+.nav-button:selected { -fx-background-color: -primary; -fx-text-fill: white; }
+
+.nav-button-secondary {
+    -fx-background-color: transparent; -fx-text-fill: #94a3b8;
+    -fx-alignment: center-left; -fx-padding: 9 12; -fx-background-radius: 8; -fx-cursor: hand;
+}
+.nav-button-secondary:hover { -fx-background-color: #334155; -fx-text-fill: white; }
+
+/* ---- Content ---- */
+.content-pane { -fx-background-color: -bg; }
+.page-title { -fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: #0f172a; }
+.hint { -fx-text-fill: #64748b; -fx-font-size: 12px; }
+
+.primary-button {
+    -fx-background-color: -primary; -fx-text-fill: white; -fx-font-weight: bold;
+    -fx-background-radius: 8; -fx-padding: 7 16; -fx-cursor: hand;
+}
+.primary-button:hover { -fx-background-color: -primary-dark; }
+
+.danger-button {
+    -fx-background-color: white; -fx-text-fill: -danger; -fx-border-color: -danger;
+    -fx-border-radius: 8; -fx-background-radius: 8; -fx-padding: 7 16; -fx-cursor: hand;
+}
+.danger-button:hover { -fx-background-color: -danger; -fx-text-fill: white; }
+
+.table-view { -fx-background-radius: 10; -fx-background-color: white; -fx-border-color: #e2e8f0; -fx-border-radius: 10; }
+.table-view .column-header-background { -fx-background-color: #f1f5f9; -fx-background-radius: 10 10 0 0; }
+.table-view .column-header .label { -fx-font-weight: bold; -fx-text-fill: #334155; }
+.low-stock-cell { -fx-text-fill: -danger; -fx-font-weight: bold; }
+
+/* order status cell colors */
+.st-delivered { -fx-text-fill: #16a34a; -fx-font-weight: bold; }
+.st-cancelled { -fx-text-fill: #dc2626; -fx-font-weight: bold; }
+.st-progress  { -fx-text-fill: #d97706; -fx-font-weight: bold; }
+
+.status-bar { -fx-background-color: #e2e8f0; }
+.status-bar .label { -fx-text-fill: #475569; -fx-font-size: 12px; }
+
+/* ---- KPI cards ---- */
+.kpi-card {
+    -fx-background-color: white; -fx-background-radius: 12; -fx-padding: 16 20;
+    -fx-min-width: 180; -fx-pref-width: 200;
+    -fx-border-radius: 12; -fx-border-width: 0 0 0 5; -fx-border-color: #cbd5e1;
+    -fx-effect: dropshadow(gaussian, rgba(15,23,42,0.08), 10, 0, 0, 2);
+}
+.kpi-title { -fx-text-fill: #64748b; -fx-font-size: 10.5px; -fx-font-weight: bold; }
+.kpi-value { -fx-text-fill: #0f172a; -fx-font-size: 26px; -fx-font-weight: bold; }
+.kpi-sub   { -fx-text-fill: #94a3b8; -fx-font-size: 11px; }
+.kpi-green { -fx-border-color: #16a34a; }
+.kpi-blue  { -fx-border-color: #2563eb; }
+.kpi-amber { -fx-border-color: #d97706; }
+.kpi-red   { -fx-border-color: #dc2626; }
+
+/* ---- Chart cards ---- */
+.chart-card {
+    -fx-background-color: white; -fx-background-radius: 12; -fx-padding: 10;
+    -fx-effect: dropshadow(gaussian, rgba(15,23,42,0.08), 10, 0, 0, 2);
+}
+.chart-card .chart-title { -fx-font-weight: bold; -fx-text-fill: #334155; }
+.chart-card .chart-plot-background { -fx-background-color: #fbfcfe; }
+.default-color0.chart-series-area-fill { -fx-fill: rgba(37,99,235,0.18); }
+.default-color0.chart-series-area-line { -fx-stroke: #2563eb; -fx-stroke-width: 2; }
+.default-color0.chart-bar { -fx-bar-fill: #2563eb; }
+
+/* ---- Polished dialogs ---- */
+.app-dialog { -fx-background-color: white; }
+.app-dialog .header-panel { -fx-background-color: white; }
+.dialog-body { -fx-background-color: white; -fx-padding: 4 8 8 8; }
+.dialog-header {
+    -fx-background-color: #f8fafc; -fx-background-radius: 12; -fx-padding: 16 18;
+    -fx-border-color: #e2e8f0; -fx-border-radius: 12; -fx-border-width: 1;
+}
+.dialog-title { -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #0f172a; }
+
+.stat-chip {
+    -fx-background-color: white; -fx-background-radius: 10; -fx-padding: 10 16;
+    -fx-border-color: #e2e8f0; -fx-border-radius: 10; -fx-border-width: 1; -fx-min-width: 120;
+}
+.chip-value { -fx-font-size: 17px; -fx-font-weight: bold; -fx-text-fill: #2563eb; }
+.chip-label { -fx-font-size: 9.5px; -fx-font-weight: bold; -fx-text-fill: #94a3b8; }
+
+/* ScrollPane inside the order detail with no grey border */
+.edge-to-edge { -fx-background-color: transparent; -fx-padding: 0; }
+.edge-to-edge > .viewport { -fx-background-color: transparent; }
+
+.app-dialog .titled-pane > .title {
+    -fx-background-color: #f1f5f9; -fx-font-weight: bold; -fx-text-fill: #334155;
+}
+.app-dialog .titled-pane > .content { -fx-background-color: white; }
+
+/* ---- Connection screen ---- */
+.connection-pane { -fx-background-color: white; }
+.brand-title { -fx-font-size: 28px; -fx-font-weight: bold; -fx-text-fill: -primary; }
+.subtitle { -fx-font-size: 14px; -fx-text-fill: #475569; -fx-padding: 0 0 10 0; }
+.status-info { -fx-text-fill: #2563eb; }
+.status-error { -fx-text-fill: -danger; -fx-font-weight: bold; }

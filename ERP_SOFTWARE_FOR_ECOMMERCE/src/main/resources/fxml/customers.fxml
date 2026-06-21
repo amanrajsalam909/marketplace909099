@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.geometry.Insets?>
+
+<VBox xmlns="http://javafx.com/javafx" xmlns:fx="http://javafx.com/fxml"
+      fx:controller="com.rajkotmarket.erp.ui.CustomersController"
+      styleClass="content-pane" spacing="12">
+    <padding><Insets top="18" right="20" bottom="18" left="20"/></padding>
+
+    <Label text="Customers" styleClass="page-title"/>
+
+    <HBox spacing="10" alignment="CENTER_LEFT">
+        <TextField fx:id="searchField" promptText="Search name, phone or email…" prefWidth="280"/>
+        <Label text="Sort:"/>
+        <ComboBox fx:id="sortCombo" prefWidth="160"/>
+        <Button text="Refresh" onAction="#reload"/>
+        <Button text="⤓ Export" onAction="#onExport"/>
+        <Region HBox.hgrow="ALWAYS"/>
+        <Button fx:id="viewButton" text="View Orders" onAction="#onView" styleClass="primary-button"/>
+    </HBox>
+
+    <TableView fx:id="table" VBox.vgrow="ALWAYS">
+        <columns>
+            <TableColumn fx:id="colName" text="Name" prefWidth="180"/>
+            <TableColumn fx:id="colPhone" text="Phone" prefWidth="130"/>
+            <TableColumn fx:id="colEmail" text="Email" prefWidth="220"/>
+            <TableColumn fx:id="colOrders" text="Orders" prefWidth="80"/>
+            <TableColumn fx:id="colSpent" text="Lifetime spend" prefWidth="130"/>
+            <TableColumn fx:id="colLast" text="Last order" prefWidth="120"/>
+        </columns>
+        <columnResizePolicy><TableView fx:constant="CONSTRAINED_RESIZE_POLICY"/></columnResizePolicy>
+    </TableView>
+
+    <Label fx:id="countLabel" styleClass="hint" text="Double-click a customer to see their orders."/>
+</VBox>

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.geometry.Insets?>
+
+<BorderPane xmlns="http://javafx.com/javafx" xmlns:fx="http://javafx.com/fxml"
+            fx:controller="com.rajkotmarket.erp.ui.MainController"
+            fx:id="root" styleClass="app-root">
+
+    <left>
+        <VBox styleClass="sidebar" spacing="6" prefWidth="220">
+            <padding><Insets top="18" right="12" bottom="18" left="12"/></padding>
+            <Label text="RajkotMarket" styleClass="sidebar-brand"/>
+            <Label text="ERP" styleClass="sidebar-brand-sub"/>
+            <Separator/>
+            <fx:define>
+                <ToggleGroup fx:id="navGroup"/>
+            </fx:define>
+            <Label text="OVERVIEW" styleClass="nav-group"/>
+            <ToggleButton fx:id="navDashboard" text="Dashboard" maxWidth="Infinity"
+                          toggleGroup="$navGroup" styleClass="nav-button" onAction="#showDashboard"/>
+            <Label text="SALES" styleClass="nav-group"/>
+            <ToggleButton fx:id="navOrders" text="Orders" maxWidth="Infinity"
+                          toggleGroup="$navGroup" styleClass="nav-button" onAction="#showOrders"/>
+            <ToggleButton fx:id="navCustomers" text="Customers" maxWidth="Infinity"
+                          toggleGroup="$navGroup" styleClass="nav-button" onAction="#showCustomers"/>
+            <Label text="INVENTORY" styleClass="nav-group"/>
+            <ToggleButton fx:id="navProducts" text="Products &amp; Inventory" maxWidth="Infinity"
+                          toggleGroup="$navGroup" styleClass="nav-button" onAction="#showProducts"/>
+            <ToggleButton fx:id="navLowStock" text="Low Stock" maxWidth="Infinity"
+                          toggleGroup="$navGroup" styleClass="nav-button" onAction="#showLowStock"/>
+            <Region VBox.vgrow="ALWAYS"/>
+            <Separator/>
+            <Button text="Reconnect / Settings" maxWidth="Infinity"
+                    styleClass="nav-button-secondary" onAction="#onReconnect"/>
+        </VBox>
+    </left>
+
+    <bottom>
+        <HBox styleClass="status-bar">
+            <padding><Insets top="6" right="14" bottom="6" left="14"/></padding>
+            <Label fx:id="statusBar" text="Ready"/>
+        </HBox>
+    </bottom>
+</BorderPane>

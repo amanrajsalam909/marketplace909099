@@ -1,0 +1,8 @@
+target/
+*.class
+.idea/
+*.iml
+.vscode/
+.DS_Store
+# Local connection config is stored in ~/.rajkotmarket-erp, never here.
+config.properties

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.geometry.Insets?>
+
+<VBox xmlns="http://javafx.com/javafx" xmlns:fx="http://javafx.com/fxml"
+      fx:controller="com.rajkotmarket.erp.ui.ProductsController"
+      styleClass="content-pane" spacing="12">
+    <padding><Insets top="18" right="20" bottom="18" left="20"/></padding>
+
+    <Label fx:id="titleLabel" text="Products &amp; Inventory" styleClass="page-title"/>
+
+    <!-- Toolbar -->
+    <HBox spacing="10" alignment="CENTER_LEFT">
+        <TextField fx:id="searchField" promptText="Search name, category or code…" prefWidth="260"/>
+        <ComboBox fx:id="vendorFilter" prefWidth="200"/>
+        <Button text="Refresh" onAction="#reload"/>
+        <Region HBox.hgrow="ALWAYS"/>
+        <HBox fx:id="lowStockControls" spacing="8" alignment="CENTER_LEFT">
+            <Label text="Stock ≤"/>
+            <Spinner fx:id="thresholdSpinner" prefWidth="100"/>
+        </HBox>
+    </HBox>
+
+    <!-- Action bar -->
+    <HBox spacing="8">
+        <Button text="Add Product" onAction="#onAdd" styleClass="primary-button"/>
+        <Button fx:id="editButton" text="Edit" onAction="#onEdit"/>
+        <Button fx:id="adjustButton" text="Adjust Stock" onAction="#onAdjustStock"/>
+        <Button fx:id="historyButton" text="Stock History" onAction="#onHistory"/>
+        <Button fx:id="variantsButton" text="Variants" onAction="#onVariants"/>
+        <Button text="⤓ Export" onAction="#onExport"/>
+        <Region HBox.hgrow="ALWAYS"/>
+        <Button fx:id="deleteButton" text="Delete" onAction="#onDelete" styleClass="danger-button"/>
+    </HBox>
+
+    <TableView fx:id="table" VBox.vgrow="ALWAYS">
+        <columns>
+            <TableColumn fx:id="colNo" text="Code" prefWidth="80"/>
+            <TableColumn fx:id="colName" text="Product" prefWidth="280"/>
+            <TableColumn fx:id="colCategory" text="Category" prefWidth="140"/>
+            <TableColumn fx:id="colVendor" text="Shop" prefWidth="180"/>
+            <TableColumn fx:id="colPrice" text="Price" prefWidth="100"/>
+            <TableColumn fx:id="colStock" text="Stock" prefWidth="80"/>
+            <TableColumn fx:id="colActive" text="Status" prefWidth="90"/>
+        </columns>
+        <columnResizePolicy>
+            <TableView fx:constant="CONSTRAINED_RESIZE_POLICY"/>
+        </columnResizePolicy>
+    </TableView>
+
+    <Label fx:id="countLabel" styleClass="hint" text=""/>
+</VBox>

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.chart.*?>
+<?import javafx.geometry.Insets?>
+
+<ScrollPane xmlns="http://javafx.com/javafx" xmlns:fx="http://javafx.com/fxml"
+            fx:controller="com.rajkotmarket.erp.ui.DashboardController"
+            fitToWidth="true" styleClass="content-pane">
+    <VBox spacing="16">
+        <padding><Insets top="18" right="20" bottom="24" left="20"/></padding>
+
+        <HBox alignment="CENTER_LEFT" spacing="12">
+            <Label text="Dashboard" styleClass="page-title"/>
+            <Region HBox.hgrow="ALWAYS"/>
+            <Label fx:id="updatedLabel" styleClass="hint" text=""/>
+            <Button text="Refresh" onAction="#refresh" styleClass="primary-button"/>
+        </HBox>
+
+        <!-- KPI cards -->
+        <FlowPane fx:id="kpiPane" hgap="14" vgap="14"/>
+
+        <!-- Revenue trend (full width) -->
+        <AreaChart fx:id="revenueChart" prefHeight="280" styleClass="chart-card">
+            <xAxis><CategoryAxis label="Day"/></xAxis>
+            <yAxis><NumberAxis label="₹"/></yAxis>
+        </AreaChart>
+
+        <!-- Two-up chart row -->
+        <HBox spacing="16">
+            <PieChart fx:id="statusChart" title="Orders by status" prefHeight="320"
+                      HBox.hgrow="ALWAYS" styleClass="chart-card"/>
+            <BarChart fx:id="vendorChart" title="Revenue by shop (delivered)" prefHeight="320"
+                      HBox.hgrow="ALWAYS" styleClass="chart-card">
+                <xAxis><NumberAxis label="₹"/></xAxis>
+                <yAxis><CategoryAxis label="Shop"/></yAxis>
+            </BarChart>
+        </HBox>
+
+        <!-- Two-up chart row -->
+        <HBox spacing="16">
+            <BarChart fx:id="topProductsChart" title="Top products (units sold)" prefHeight="360"
+                      HBox.hgrow="ALWAYS" styleClass="chart-card">
+                <xAxis><NumberAxis label="Units"/></xAxis>
+                <yAxis><CategoryAxis label="Product"/></yAxis>
+            </BarChart>
+            <BarChart fx:id="categoryChart" title="Inventory value by category" prefHeight="360"
+                      HBox.hgrow="ALWAYS" styleClass="chart-card">
+                <xAxis><NumberAxis label="₹"/></xAxis>
+                <yAxis><CategoryAxis label="Category"/></yAxis>
+            </BarChart>
+        </HBox>
+    </VBox>
+</ScrollPane>
