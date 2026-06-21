@@ -914,7 +914,9 @@
     /* ---- Specification templates (vendor ticks available options) ---- */
     async function loadSpecTemplates() {
       try {
-        const res = await fetch('/api/marketplace?action=spec-templates');
+        // Cache-bust: templates change during setup and a stale CDN copy would
+        // hide a just-created template from the vendor. This fetch is low-traffic.
+        const res = await fetch('/api/marketplace?action=spec-templates&_=' + Date.now());
         specTemplates = await res.json();
         if (!Array.isArray(specTemplates)) specTemplates = [];
       } catch { specTemplates = []; }

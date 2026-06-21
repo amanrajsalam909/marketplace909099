@@ -84,7 +84,8 @@ module.exports = async (req, res) => {
           .order('name');
 
         if (error) throw error;
-        edgeCache(res, 300, 3600);
+        // Short TTL: admin edits to templates should reach vendors quickly.
+        edgeCache(res, 30, 120);
         return res.json(data);
       }
 
