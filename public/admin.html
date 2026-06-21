@@ -1691,11 +1691,12 @@
       row.dataset.swatches = JSON.stringify(swatches || {});
       row.innerHTML = `
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-          <div style="flex:1;min-width:140px"><label>Field name</label><input class="sf-label" type="text" placeholder="e.g. Size or Colour"></div>
-          <div style="flex:2;min-width:200px"><label>Options (comma-separated)</label><input class="sf-options" type="text" placeholder="e.g. XS, S, M, L, XL"></div>
+          <div style="flex:1;min-width:140px"><label>Field name</label><input class="sf-label" type="text" placeholder="e.g. Size, Colour, Material"></div>
+          <div class="sf-options-wrap" style="flex:2;min-width:200px"><label>Options (comma-separated)</label><input class="sf-options" type="text" placeholder="e.g. XS, S, M, L, XL"></div>
           <button type="button" class="btn btn-outline btn-sm sf-colors">🎨 Colour chart</button>
           <button type="button" class="btn btn-outline btn-sm sf-remove">✕</button>
         </div>
+        <div class="sf-note" style="display:none;font-size:11px;color:var(--muted);margin-top:6px">Vendors will type the value for this detail.</div>
         <div class="sf-chart" style="display:none;margin-top:10px;padding:10px;border:1px dashed var(--border);border-radius:8px"></div>`;
       row.querySelector('.sf-label').value = label || '';
       row.querySelector('.sf-options').value = (options || []).join(', ');
@@ -1757,6 +1758,7 @@
       box.appendChild(specFieldRow('', []));
       document.getElementById('specFormTitle').textContent = '➕ New specification template';
       document.getElementById('specResetBtn').style.display = 'none';
+      applyStaticMode();
     }
 
     function editSpecTemplate(t) {
@@ -1769,26 +1771,43 @@
       if (!box.children.length) box.appendChild(specFieldRow('', []));
       document.getElementById('specFormTitle').textContent = '✏️ Edit template — ' + (t.name || '');
       document.getElementById('specResetBtn').style.display = '';
+      applyStaticMode();
       document.getElementById('panel-spectemplates').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    // Show/hide the per-row options + colour chart depending on the static flag.
+    function applyStaticMode() {
+      const stat = document.getElementById('specStatic').checked;
+      document.querySelectorAll('#specFields .spec-field-row').forEach(r => {
+        r.querySelector('.sf-options-wrap').style.display = stat ? 'none' : '';
+        r.querySelector('.sf-colors').style.display = stat ? 'none' : '';
+        r.querySelector('.sf-note').style.display = stat ? '' : 'none';
+        if (stat) r.querySelector('.sf-chart').style.display = 'none';
+      });
+    }
+
     function readSpecForm() {
+      const isStatic = document.getElementById('specStatic').checked;
       const fields = [...document.querySelectorAll('#specFields .spec-field-row')].map(r => {
+        const label = r.querySelector('.sf-label').value.trim();
+        if (isStatic) return { label };
         const options = r.querySelector('.sf-options').value.split(',').map(s => s.trim()).filter(Boolean);
         const map = rowColors(r);
         const swatches = {};
         options.forEach(o => { if (map[o]) swatches[o] = map[o]; });
-        const field = { label: r.querySelector('.sf-label').value.trim(), options };
+        const field = { label, options };
         if (Object.keys(swatches).length) field.swatches = swatches;
         return field;
-      }).filter(f => f.label && f.options.length);
-      return { id: document.getElementById('specId').value || undefined, name: document.getElementById('specName').value.trim(), is_static: document.getElementById('specStatic').checked, fields };
+      }).filter(f => f.label && (isStatic || f.options.length));
+      return { id: document.getElementById('specId').value || undefined, name: document.getElementById('specName').value.trim(), is_static: isStatic, fields };
     }
 
     document.getElementById('specAddField').addEventListener('click', () => {
       document.getElementById('specFields').appendChild(specFieldRow('', []));
+      applyStaticMode();
     });
     document.getElementById('specResetBtn').addEventListener('click', resetSpecForm);
+    document.getElementById('specStatic').addEventListener('change', applyStaticMode);
 
     document.getElementById('specSaveBtn').addEventListener('click', async () => {
       const body = readSpecForm();

@@ -426,16 +426,19 @@ module.exports = async (req, res) => {
         const name = String(req.body.name || '').trim().slice(0, 120);
         if (!name) return res.status(400).json({ error: 'Template name is required.' });
 
-        const fields = normalizeSpecFields(req.body.fields);
+        const isStatic = req.body.is_static === true;
+        const fields = normalizeSpecFields(req.body.fields, isStatic);
         if (!fields.length) {
-          return res.status(400).json({ error: 'Add at least one spec field with one or more options.' });
+          return res.status(400).json({ error: isStatic
+            ? 'Add at least one detail field (just a name).'
+            : 'Add at least one spec field with one or more options.' });
         }
 
         const row = {
           name,
           fields,
           is_active: req.body.is_active !== false,
-          is_static: req.body.is_static === true,
+          is_static: isStatic,
           sort_order: Math.trunc(Number(req.body.sort_order)) || 0,
           updated_at: new Date().toISOString()
         };
@@ -469,11 +472,13 @@ module.exports = async (req, res) => {
   }
 };
 
-// Sanitise an admin-submitted spec-template field list into a stable shape:
-// [{key, label, options[]}]. Each field needs a label + at least one option;
-// keys are slugified from the label and de-duped so the vendor/customer code
+// Sanitise an admin-submitted spec-template field list into a stable shape.
+// Pickable templates: [{key, label, options[], swatches?}] — each field needs a
+// label + at least one option. Static (info-only) templates: [{key, label}] —
+// just labels; the vendor types the value in a free-text box per field.
+// Keys are slugified from the label and de-duped so the vendor/customer code
 // can address fields reliably.
-function normalizeSpecFields(input) {
+function normalizeSpecFields(input, isStatic) {
   if (!Array.isArray(input)) return [];
   const out = [];
   const seen = new Set();
@@ -493,24 +498,28 @@ function normalizeSpecFields(input) {
       options.push(opt);
       if (options.length >= 100) break;
     }
-    if (!options.length) continue;
+    // Pickable fields must offer at least one option; static fields need none.
+    if (!isStatic && !options.length) continue;
 
     let key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'field';
     let unique = key, n = 2;
     while (seen.has(unique)) unique = `${key}_${n++}`;
     seen.add(unique);
 
-    const field = { key: unique, label, options };
+    const field = { key: unique, label };
 
-    // Optional colour swatches: { "<option name>": "#rrggbb" }. Only keep
-    // entries that map to a real option and a valid 6-digit hex.
-    if (f.swatches && typeof f.swatches === 'object') {
-      const swatches = {};
-      for (const opt of options) {
-        const hex = String(f.swatches[opt] || '').trim();
-        if (/^#[0-9a-f]{6}$/i.test(hex)) swatches[opt] = hex.toLowerCase();
+    if (!isStatic) {
+      field.options = options;
+      // Optional colour swatches: { "<option name>": "#rrggbb" }. Only keep
+      // entries that map to a real option and a valid 6-digit hex.
+      if (f.swatches && typeof f.swatches === 'object') {
+        const swatches = {};
+        for (const opt of options) {
+          const hex = String(f.swatches[opt] || '').trim();
+          if (/^#[0-9a-f]{6}$/i.test(hex)) swatches[opt] = hex.toLowerCase();
+        }
+        if (Object.keys(swatches).length) field.swatches = swatches;
       }
-      if (Object.keys(swatches).length) field.swatches = swatches;
     }
 
     out.push(field);

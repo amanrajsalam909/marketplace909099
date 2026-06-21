@@ -793,14 +793,14 @@
       const specsHtml = specs.map(s => {
         const isColor = RMColors.isColorField(s.label) || !!s.swatches;
         const hexOf = o => (s.swatches && s.swatches[o]) || RMColors.hexFor(o) || '#cbd5e1';
-        // Info-only field: show as a read-only detail row, never selectable.
+        // Info-only field: a read-only detail row showing the typed value.
         if (s.static) {
+          const val = s.value || (s.options || []).join(', ');
+          if (!val) return '';
           return `
         <div style="margin-bottom:10px;display:flex;gap:8px;font-size:13px">
           <span style="font-weight:700;color:var(--dark);min-width:96px">${esc(s.label)}</span>
-          <span style="color:var(--muted);display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-            ${(s.options || []).map(o => `${isColor ? `<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:13px;height:13px;border-radius:50%;background:${esc(hexOf(o))};border:1px solid rgba(0,0,0,0.25)"></span>${esc(o)}</span>` : esc(o)}`).join(isColor ? '' : ', ')}
-          </span>
+          <span style="color:var(--muted)">${esc(val)}</span>
         </div>`;
         }
         return `
