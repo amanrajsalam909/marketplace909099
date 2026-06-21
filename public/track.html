@@ -222,7 +222,7 @@
           </ul>`}
           ${items.length ? `
             <div class="items">
-              ${items.map(i => `<div class="item-row"><span>${esc(i.name)} × ${i.quantity}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}
+              ${items.map(i => `<div class="item-row"><span>${esc(i.name)} × ${i.quantity}${i.specs ? ' · ' + Object.entries(i.specs).map(([k, v]) => esc(k + ': ' + v)).join(' · ') : ''}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}
             </div>` : ''}
           ${order.delivery_address ? `<div class="addr">📍 Delivering to: ${esc(order.delivery_address)}</div>` : ''}
         </div>

@@ -489,7 +489,7 @@
         }
         el.innerHTML = orders.map(o => {
           const items = Array.isArray(o.items_json) ? o.items_json : [];
-          const itemsLine = items.map(i => esc(i.name) + ' × ' + i.quantity).join(' · ');
+          const itemsLine = items.map(i => esc(i.name) + ' × ' + i.quantity + (i.specs ? ' (' + Object.entries(i.specs).map(([k, v]) => esc(k + ': ' + v)).join(', ') + ')' : '')).join(' · ');
           const canCancel = o.status === 'pending' && (Date.now() - new Date(o.created_at).getTime() < 10 * 60 * 1000);
           const comps = compByOrder[o.order_id] || [];
           const ret = returnByOrder[o.order_id];

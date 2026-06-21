@@ -631,7 +631,7 @@
               <div><div class="meta-label">Address</div><div class="meta-value">${esc(o.delivery_address)}</div></div>
             </div>
             <div class="order-items">
-              ${items.map(i => `<div class="oitem"><span>${esc(i.name)} × ${i.quantity}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}
+              ${items.map(i => `<div class="oitem"><span>${esc(i.name)} × ${i.quantity}${i.specs ? ' · <b style="color:var(--primary)">' + Object.entries(i.specs).map(([k, v]) => esc(k + ': ' + v)).join(' · ') + '</b>' : ''}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}
             </div>
             <div class="order-bottom">
               <div>
@@ -765,7 +765,7 @@
       if (!o || !o.order_id) return '';
       return `<div style="background:var(--bg);border-radius:8px;padding:10px 12px;font-size:13px">
         <b>${esc(o.order_id)}</b> · ${esc(o.customer_name || '')} · ${esc(o.customer_phone || '')}<br>
-        ${(o.items || []).map(i => esc(i.name) + ' × ' + i.quantity).join(', ')}<br>
+        ${(o.items || []).map(i => esc(i.name) + ' × ' + i.quantity + (i.specs ? ' (' + Object.entries(i.specs).map(([k, v]) => esc(k + ': ' + v)).join(', ') + ')' : '')).join(', ')}<br>
         <b>${inr(o.total || 0)}</b> · ${esc(o.payment_method || '')} · ${esc(o.payment_status || '')}
       </div>`;
     }
@@ -820,7 +820,7 @@
           <div><div class="meta-label">Phone</div><div class="meta-value"><a href="tel:${esc(o.customer_phone)}" style="color:var(--primary);text-decoration:none">${esc(o.customer_phone)}</a></div></div>
         </div>
         <div style="margin:10px 0"><div class="meta-label">Delivery address</div><div class="meta-value">${esc(o.delivery_address)}</div></div>
-        <div class="order-items">${items.map(i => `<div class="oitem"><span>${esc(i.name)} × ${i.quantity}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}</div>
+        <div class="order-items">${items.map(i => `<div class="oitem"><span>${esc(i.name)} × ${i.quantity}${i.specs ? ' · <b style="color:var(--primary)">' + Object.entries(i.specs).map(([k, v]) => esc(k + ': ' + v)).join(' · ') + '</b>' : ''}</span><span>${inr(i.price * i.quantity)}</span></div>`).join('')}</div>
         <div class="dm-money">
           <div class="trow"><span>Items subtotal</span><span>${inr(o.subtotal || 0)}</span></div>
           <div class="trow"><span>Delivery fee</span><span>${inr(o.delivery_fee || 0)}</span></div>
@@ -860,7 +860,7 @@
       const items = o.items || [];
       const w = window.open('', '_blank', 'width=380,height=640');
       if (!w) { toast('Allow pop-ups to print the ticket.'); return; }
-      const rows = items.map(i => `<tr><td>${esc(i.name)} × ${i.quantity}</td><td style="text-align:right">${inr(i.price * i.quantity)}</td></tr>`).join('');
+      const rows = items.map(i => `<tr><td>${esc(i.name)} × ${i.quantity}${i.specs ? '<br><b>' + Object.entries(i.specs).map(([k, v]) => esc(k + ': ' + v)).join(' · ') + '</b>' : ''}</td><td style="text-align:right">${inr(i.price * i.quantity)}</td></tr>`).join('');
       w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(o.order_id)}</title><style>
         *{font-family:'Courier New',monospace;font-size:13px;margin:0;padding:0}
         body{padding:16px;color:#000} h2{font-size:16px;margin-bottom:4px}
@@ -1380,7 +1380,7 @@
           return { filename: 'orders', sheets: [{ name: 'Orders', rows: list.map(o => ({
             'Order ID': o.order_id, 'Status': STATUS_LABELS[o.status] || o.status,
             'Customer': o.customer_name, 'Phone': o.customer_phone, 'Address': o.delivery_address,
-            'Items': (o.items || []).map(i => `${i.name} × ${i.quantity}`).join(' | '),
+            'Items': (o.items || []).map(i => `${i.name} × ${i.quantity}${i.specs ? ' (' + Object.entries(i.specs).map(([k, v]) => k + ': ' + v).join(', ') + ')' : ''}`).join(' | '),
             'Subtotal': Number(o.subtotal || 0), 'Delivery Fee': Number(o.delivery_fee || 0),
             'Commission': Number(o.commission_amount || 0), 'Total': Number(o.total),
             'Payment Method': o.payment_method || '', 'Payment Status': o.payment_status || '',

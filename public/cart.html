@@ -703,7 +703,7 @@
             action: 'place',
             // Only ids + quantities: prices, fees and totals are computed
             // server-side from the database.
-            items: cart.map(i => ({ id: i.id, qty: i.quantity })),
+            items: cart.map(i => ({ id: i.id, qty: i.quantity, specs: i.specs || null })),
             customer: {
               name, phone, email, address,
               address_parts: { flat, building: bldg, street, area, landmark, city, pin }

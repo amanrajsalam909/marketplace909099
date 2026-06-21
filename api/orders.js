@@ -96,7 +96,8 @@ module.exports = async (req, res) => {
         // single source of truth for prices, vendors, fees and stock.
         const lines = items.map(i => ({
           id: i.id,
-          qty: Math.trunc(Number(i.qty ?? i.quantity)) || 0
+          qty: Math.trunc(Number(i.qty ?? i.quantity)) || 0,
+          specs: sanitizeSpecs(i.specs)
         }));
         if (lines.some(l => !l.id || l.qty < 1)) {
           return res.status(400).json({ error: 'Invalid items in cart.' });
@@ -186,6 +187,21 @@ function sanitizeAddressParts(p) {
     pin: f('pin').replace(/\D/g, '').slice(0, 6)
   };
   return Object.values(out).some(Boolean) ? out : null;
+}
+
+// The customer's chosen spec values for a cart line: a flat { label: value }
+// map (e.g. { Size: 'M', Colour: 'Red' }). Bounded and string-coerced so only
+// clean data reaches the order. Returns null when there's nothing usable.
+function sanitizeSpecs(specs) {
+  if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(specs)) {
+    const label = String(k).trim().slice(0, 60);
+    const value = String(v).trim().slice(0, 120);
+    if (label && value) out[label] = value;
+    if (Object.keys(out).length >= 30) break;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 async function notifyByEmail(orders, customer) {
