@@ -540,6 +540,7 @@
 
   <div class="toast" id="toast"></div>
 
+  <script src="/colors.js"></script>
   <script>
     const token = localStorage.getItem('adminToken');
     if (!token) location.href = 'admin-login.html';
@@ -1679,18 +1680,68 @@
     /* ---------- Specification templates (pickable-choice specs) ---------- */
     let lastSpecTemplates = [];
 
-    function specFieldRow(label, options) {
+    function specFieldRow(label, options, swatches) {
       const row = document.createElement('div');
       row.className = 'spec-field-row';
-      row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px';
+      row.style.cssText = 'margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px';
+      row.dataset.swatches = JSON.stringify(swatches || {});
       row.innerHTML = `
-        <div style="flex:1;min-width:140px"><label>Field name</label><input class="sf-label" type="text" placeholder="e.g. Size"></div>
-        <div style="flex:2;min-width:200px"><label>Options (comma-separated)</label><input class="sf-options" type="text" placeholder="e.g. XS, S, M, L, XL, XXL, XXXL"></div>
-        <button type="button" class="btn btn-outline btn-sm sf-remove">✕</button>`;
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div style="flex:1;min-width:140px"><label>Field name</label><input class="sf-label" type="text" placeholder="e.g. Size or Colour"></div>
+          <div style="flex:2;min-width:200px"><label>Options (comma-separated)</label><input class="sf-options" type="text" placeholder="e.g. XS, S, M, L, XL"></div>
+          <button type="button" class="btn btn-outline btn-sm sf-colors">🎨 Colour chart</button>
+          <button type="button" class="btn btn-outline btn-sm sf-remove">✕</button>
+        </div>
+        <div class="sf-chart" style="display:none;margin-top:10px;padding:10px;border:1px dashed var(--border);border-radius:8px"></div>`;
       row.querySelector('.sf-label').value = label || '';
       row.querySelector('.sf-options').value = (options || []).join(', ');
       row.querySelector('.sf-remove').addEventListener('click', () => row.remove());
+      row.querySelector('.sf-colors').addEventListener('click', () => {
+        const chart = row.querySelector('.sf-chart');
+        const open = chart.style.display !== 'none';
+        chart.style.display = open ? 'none' : 'block';
+        if (!open) renderColorChart(row);
+      });
       return row;
+    }
+
+    // Sync a row's chosen colours: rebuild the options input + the swatch map.
+    function rowColors(row) { try { return JSON.parse(row.dataset.swatches || '{}'); } catch { return {}; } }
+    function setRowColors(row, map) {
+      row.dataset.swatches = JSON.stringify(map);
+      row.querySelector('.sf-options').value = Object.keys(map).join(', ');
+    }
+
+    function renderColorChart(row) {
+      const chart = row.querySelector('.sf-chart');
+      const chosen = rowColors(row);
+      const swatch = (name, hex, on) => `
+        <button type="button" class="cc-pick" data-name="${esc(name)}" data-hex="${esc(hex)}"
+          title="${esc(name)}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;border:${on ? '2px solid var(--primary)' : '1px solid var(--border)'};background:${on ? '#eff6ff' : '#fff'}">
+          <span style="width:15px;height:15px;border-radius:50%;background:${esc(hex)};border:1px solid rgba(0,0,0,0.2)"></span>${esc(name)}</button>`;
+      chart.innerHTML = `
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Tap colours to add them. Customers will see these swatches.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px">
+          ${RMColors.PALETTE.map(c => swatch(c.name, c.hex, !!chosen[c.name])).join('')}
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;border-top:1px dashed var(--border);padding-top:10px">
+          <input type="color" class="cc-hex" value="#888888" style="width:42px;height:34px;padding:0;border:1px solid var(--border);border-radius:6px;cursor:pointer">
+          <input type="text" class="cc-name" placeholder="Custom colour name" style="flex:1;min-width:140px">
+          <button type="button" class="btn btn-outline btn-sm cc-add">+ Add custom</button>
+        </div>`;
+      chart.querySelectorAll('.cc-pick').forEach(b => b.addEventListener('click', () => {
+        const map = rowColors(row), name = b.dataset.name;
+        if (map[name]) delete map[name]; else map[name] = b.dataset.hex;
+        setRowColors(row, map);
+        renderColorChart(row);
+      }));
+      chart.querySelector('.cc-add').addEventListener('click', () => {
+        const name = chart.querySelector('.cc-name').value.trim();
+        const hex = chart.querySelector('.cc-hex').value;
+        if (!name) return toast('Name the custom colour.');
+        const map = rowColors(row); map[name] = hex; setRowColors(row, map);
+        renderColorChart(row);
+      });
     }
 
     function resetSpecForm() {
@@ -1708,7 +1759,7 @@
       document.getElementById('specName').value = t.name || '';
       const box = document.getElementById('specFields');
       box.innerHTML = '';
-      (t.fields || []).forEach(f => box.appendChild(specFieldRow(f.label, f.options)));
+      (t.fields || []).forEach(f => box.appendChild(specFieldRow(f.label, f.options, f.swatches)));
       if (!box.children.length) box.appendChild(specFieldRow('', []));
       document.getElementById('specFormTitle').textContent = '✏️ Edit template — ' + (t.name || '');
       document.getElementById('specResetBtn').style.display = '';
@@ -1716,10 +1767,15 @@
     }
 
     function readSpecForm() {
-      const fields = [...document.querySelectorAll('#specFields .spec-field-row')].map(r => ({
-        label: r.querySelector('.sf-label').value.trim(),
-        options: r.querySelector('.sf-options').value.split(',').map(s => s.trim()).filter(Boolean)
-      })).filter(f => f.label && f.options.length);
+      const fields = [...document.querySelectorAll('#specFields .spec-field-row')].map(r => {
+        const options = r.querySelector('.sf-options').value.split(',').map(s => s.trim()).filter(Boolean);
+        const map = rowColors(r);
+        const swatches = {};
+        options.forEach(o => { if (map[o]) swatches[o] = map[o]; });
+        const field = { label: r.querySelector('.sf-label').value.trim(), options };
+        if (Object.keys(swatches).length) field.swatches = swatches;
+        return field;
+      }).filter(f => f.label && f.options.length);
       return { id: document.getElementById('specId').value || undefined, name: document.getElementById('specName').value.trim(), fields };
     }
 

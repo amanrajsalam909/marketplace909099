@@ -496,6 +496,7 @@
     </div>
   </div>
 
+  <script src="/colors.js"></script>
   <script>
     const state = {
       vendors: [],
@@ -786,16 +787,21 @@
       const out = typeof p.stock === 'number' && p.stock <= 0;
       const specs = Array.isArray(p.specs) ? p.specs : [];
 
-      const specsHtml = specs.map((s, fi) => `
+      const specsHtml = specs.map(s => {
+        const isColor = RMColors.isColorField(s.label) || !!s.swatches;
+        const hexOf = o => (s.swatches && s.swatches[o]) || RMColors.hexFor(o) || '#cbd5e1';
+        return `
         <div style="margin-bottom:12px">
           <div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:6px">${esc(s.label)}</div>
           <div class="pd-opts" data-key="${esc(s.key)}" data-label="${esc(s.label)}" style="display:flex;flex-wrap:wrap;gap:8px">
-            ${(s.options || []).map((o, oi) => `
-              <button type="button" class="pd-opt" data-opt="${esc(o)}" aria-pressed="${(s.options.length === 1 || oi === 0) ? 'true' : 'false'}"
-                style="cursor:pointer;font-size:13px;font-weight:600;padding:7px 14px;border-radius:999px;border:1px solid ${(s.options.length === 1 || oi === 0) ? 'var(--primary)' : 'var(--border)'};${(s.options.length === 1 || oi === 0) ? 'background:var(--primary);color:#fff' : 'background:#fff;color:var(--dark)'}">${esc(o)}</button>
-            `).join('')}
+            ${(s.options || []).map((o, oi) => {
+              const sel = (s.options.length === 1 || oi === 0);
+              return `<button type="button" class="pd-opt" data-opt="${esc(o)}" aria-pressed="${sel ? 'true' : 'false'}"
+                style="cursor:pointer;font-size:13px;font-weight:600;padding:7px 14px;border-radius:999px;display:inline-flex;align-items:center;gap:7px;border:1px solid ${sel ? 'var(--primary)' : 'var(--border)'};${sel ? 'background:var(--primary);color:#fff' : 'background:#fff;color:var(--dark)'}">${isColor ? `<span style="width:15px;height:15px;border-radius:50%;background:${esc(hexOf(o))};border:1px solid rgba(0,0,0,0.25)"></span>` : ''}${esc(o)}</button>`;
+            }).join('')}
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
 
       openModal(p.name, `
         <div style="max-height:70vh;overflow:auto">

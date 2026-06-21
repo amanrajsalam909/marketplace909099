@@ -499,7 +499,20 @@ function normalizeSpecFields(input) {
     while (seen.has(unique)) unique = `${key}_${n++}`;
     seen.add(unique);
 
-    out.push({ key: unique, label, options });
+    const field = { key: unique, label, options };
+
+    // Optional colour swatches: { "<option name>": "#rrggbb" }. Only keep
+    // entries that map to a real option and a valid 6-digit hex.
+    if (f.swatches && typeof f.swatches === 'object') {
+      const swatches = {};
+      for (const opt of options) {
+        const hex = String(f.swatches[opt] || '').trim();
+        if (/^#[0-9a-f]{6}$/i.test(hex)) swatches[opt] = hex.toLowerCase();
+      }
+      if (Object.keys(swatches).length) field.swatches = swatches;
+    }
+
+    out.push(field);
     if (out.length >= 30) break;
   }
   return out;
