@@ -956,6 +956,15 @@
         return;
       }
 
+      // Variant-stock template: combinations are defined explicitly in the
+      // sub-stock editor (independent XS-Red, XS-Green … — any combination),
+      // not derived from ticked chips.
+      if (t.track_variant_stock) {
+        setStockFieldVisible(false);
+        renderVariantEditor(box, t);
+        return;
+      }
+
       const savedMap = {};
       (saved || []).forEach(s => { savedMap[s.key] = s.options || []; });
       (t.fields || []).forEach(f => {
@@ -989,78 +998,51 @@
         box.appendChild(row);
       });
 
-      // Variant stock: a stock box per combination of the ticked options.
-      const isVariant = !!t.track_variant_stock;
-      setStockFieldVisible(!isVariant);
-      if (isVariant) {
-        const grid = document.createElement('div');
-        grid.id = 'pVariantGrid';
-        grid.style.cssText = 'margin-top:12px;border-top:1px dashed var(--border);padding-top:12px';
-        box.appendChild(grid);
-        renderVariantGrid();
-      }
     }
 
-    // Canonical key for a {label:value} combo so saved variants can be matched
-    // regardless of key order.
-    function canonSpecs(specs) {
-      return JSON.stringify(Object.keys(specs).sort().map(k => [k, specs[k]]));
+    // ---- Sub-stock editor: explicit, independent size×colour combinations ----
+    // One row per combination the vendor actually sells. Each row has a dropdown
+    // per pickable field (Size, Colour, …) + its own stock. Add/remove freely.
+    function variantRow(t, specs, stock) {
+      const row = document.createElement('div');
+      row.className = 'var-row';
+      row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px';
+      const selects = (t.fields || []).map(f => {
+        const opts = ['<option value="">' + esc(f.label) + '…</option>']
+          .concat((f.options || []).map(o => `<option value="${esc(o)}"${specs && specs[f.label] === o ? ' selected' : ''}>${esc(o)}</option>`))
+          .join('');
+        return `<select class="vr-field" data-label="${esc(f.label)}" style="flex:1;min-width:110px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg)">${opts}</select>`;
+      }).join('');
+      row.innerHTML = selects +
+        `<input class="vr-stock" type="number" min="0" step="1" value="${stock === '' || stock == null ? '' : stock}" placeholder="Stock" style="width:88px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg)">
+         <button type="button" class="btn btn-outline btn-sm vr-del" title="Remove combination">✕</button>`;
+      row.querySelector('.vr-del').addEventListener('click', () => { row.remove(); updateVariantTotal(); });
+      row.querySelector('.vr-stock').addEventListener('input', updateVariantTotal);
+      return row;
     }
 
-    // Build the per-combination stock grid from the currently ticked options.
-    function renderVariantGrid() {
-      const grid = document.getElementById('pVariantGrid');
-      if (!grid) return;
-      // Preserve any numbers the vendor already typed before re-rendering.
-      const typed = {};
-      grid.querySelectorAll('.var-stock').forEach(i => { typed[i.dataset.combo] = i.value; });
-
-      const groups = [...document.querySelectorAll('#pSpecFields .spec-opts')].map(g => ({
-        label: g.dataset.label,
-        opts: [...g.querySelectorAll('.spec-chip[aria-pressed="true"]')].map(c => c.dataset.opt)
-      }));
-
-      if (!groups.length || groups.some(g => !g.opts.length)) {
-        grid.innerHTML = '<div style="font-size:12px;color:var(--muted)">Tick at least one option in each field above to set per-variant stock.</div>';
-        updateVariantTotal();
-        return;
-      }
-
-      // Cartesian product of the ticked options → one row per combination.
-      let combos = [{}];
-      groups.forEach(g => {
-        const next = [];
-        combos.forEach(c => g.opts.forEach(o => next.push({ ...c, [g.label]: o })));
-        combos = next;
-      });
-
-      const savedByKey = {};
-      (editingVariants || []).forEach(v => { savedByKey[canonSpecs(v.specs || {})] = v.stock; });
-
-      grid.innerHTML = '<div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:8px">📦 Stock per variant</div>' +
-        combos.map(c => {
-          const key = canonSpecs(c);
-          const prev = typed[key] !== undefined ? typed[key] : (savedByKey[key] !== undefined ? savedByKey[key] : '');
-          const label = Object.entries(c).map(([k, v]) => esc(v)).join(' · ');
-          return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0">
-            <span style="font-size:13px;font-weight:600;color:var(--dark)">${label}</span>
-            <input class="var-stock" type="number" min="0" step="1" value="${prev}" placeholder="0"
-              data-combo='${esc(key)}' data-specs='${esc(JSON.stringify(c))}'
-              style="width:90px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg)">
-          </div>`;
-        }).join('') +
-        '<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--dark);border-top:1px solid var(--border);margin-top:8px;padding-top:8px"><span>Total stock</span><span id="pVariantTotal">0</span></div>';
-
-      grid.querySelectorAll('.var-stock').forEach(i => i.addEventListener('input', updateVariantTotal));
+    function renderVariantEditor(box, t) {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'margin-top:12px;border-top:1px dashed var(--border);padding-top:12px';
+      wrap.innerHTML = `<div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:4px">📦 Sub-stock — stock per size/colour combination</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Add only the combinations you sell (e.g. M · Red · 10, L · Pink · 5). Each combination has its own stock; the product total is their sum.</div>
+        <div id="pVarRows"></div>
+        <button type="button" class="btn btn-outline btn-sm" id="pVarAdd" style="margin-top:4px">+ Add combination</button>
+        <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--dark);border-top:1px solid var(--border);margin-top:10px;padding-top:8px"><span>Total stock</span><span id="pVariantTotal">0</span></div>`;
+      box.appendChild(wrap);
+      const rowsEl = wrap.querySelector('#pVarRows');
+      const saved = editingVariants || [];
+      if (saved.length) saved.forEach(v => rowsEl.appendChild(variantRow(t, v.specs || {}, v.stock)));
+      else rowsEl.appendChild(variantRow(t, {}, ''));
+      wrap.querySelector('#pVarAdd').addEventListener('click', () => rowsEl.appendChild(variantRow(t, {}, '')));
       updateVariantTotal();
     }
 
     function updateVariantTotal() {
       const el = document.getElementById('pVariantTotal');
       if (!el) return;
-      const sum = [...document.querySelectorAll('#pVariantGrid .var-stock')]
+      el.textContent = [...document.querySelectorAll('#pVarRows .vr-stock')]
         .reduce((s, i) => s + (parseInt(i.value, 10) || 0), 0);
-      el.textContent = sum;
     }
 
     // Show/hide the single Stock field (hidden when tracking per-variant stock).
@@ -1069,12 +1051,32 @@
       if (wrap) wrap.style.display = show ? '' : 'none';
     }
 
-    // Read the per-combination grid into [{specs, stock}].
+    // Read the sub-stock editor into [{specs:{label:value}, stock}] — only complete,
+    // de-duplicated combinations.
     function readVariants() {
-      return [...document.querySelectorAll('#pVariantGrid .var-stock')].map(i => ({
-        specs: JSON.parse(i.dataset.specs),
-        stock: Math.max(0, parseInt(i.value, 10) || 0)
-      }));
+      const out = [], seen = new Set();
+      document.querySelectorAll('#pVarRows .var-row').forEach(row => {
+        const specs = {}; let complete = true;
+        row.querySelectorAll('.vr-field').forEach(s => { if (s.value) specs[s.dataset.label] = s.value; else complete = false; });
+        if (!complete || !Object.keys(specs).length) return;
+        const key = JSON.stringify(Object.keys(specs).sort().map(k => [k, specs[k]]));
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({ specs, stock: Math.max(0, parseInt(row.querySelector('.vr-stock').value, 10) || 0) });
+      });
+      return out;
+    }
+
+    // Availability shown to customers, derived from the combinations entered
+    // (distinct values per field, keeping the template's colour swatches).
+    function deriveVariantSpecs(t, variants) {
+      return (t.fields || []).map(f => {
+        const vals = [], s = new Set();
+        variants.forEach(v => { const val = v.specs[f.label]; if (val && !s.has(val)) { s.add(val); vals.push(val); } });
+        const field = { key: f.key, label: f.label, options: vals };
+        if (f.swatches) { const sw = {}; vals.forEach(o => { if (f.swatches[o]) sw[o] = f.swatches[o]; }); if (Object.keys(sw).length) field.swatches = sw; }
+        return field;
+      }).filter(f => f.options.length);
     }
 
     // True when the selected template tracks per-variant stock.
@@ -1109,12 +1111,6 @@
     }
 
     document.getElementById('pSpecTemplate').addEventListener('change', e => { editingVariants = []; renderSpecChips(e.target.value, []); });
-
-    // Availability chips drive the variant grid — re-render it (in variant mode)
-    // after any chip toggles. One delegated listener (fires after the chip's own).
-    document.getElementById('pSpecFields').addEventListener('click', e => {
-      if (e.target.closest('.spec-chip') && document.getElementById('pVariantGrid')) renderVariantGrid();
-    });
 
     function renderProducts() {
       const el = document.getElementById('productsList');
@@ -1192,7 +1188,12 @@
         spec_template_id: document.getElementById('pSpecTemplate').value || null,
         specs: readSpecs()
       };
-      if (selectedTemplateTracksVariants()) product.variants = readVariants();
+      if (selectedTemplateTracksVariants()) {
+        const tpl = specTemplates.find(x => x.id === product.spec_template_id);
+        product.variants = readVariants();
+        // Availability the storefront shows is derived from the combinations entered.
+        product.specs = deriveVariantSpecs(tpl, product.variants);
+      }
 
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
