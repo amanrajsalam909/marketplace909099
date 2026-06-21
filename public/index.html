@@ -761,6 +761,7 @@
         const out = typeof p.stock === 'number' && p.stock <= 0;
         const low = !out && typeof p.stock === 'number' && p.stock <= 5;
         const hasSpecs = Array.isArray(p.specs) && p.specs.length > 0;
+        const hasPickable = hasSpecs && p.specs.some(s => !s.static);
         return `
         <div class="product-card" data-prod="${p.id}" style="cursor:pointer;${out ? 'opacity:0.6' : ''}">
           <div class="product-image">${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}">` : '🛍️'}</div>
@@ -774,7 +775,7 @@
               <div class="product-price">${inr(p.price)}</div>
               ${out
                 ? '<span style="font-size:12px;font-weight:700;color:#dc2626">Out of stock</span>'
-                : `<button class="add-btn" data-add="${p.id}"${hasSpecs ? ' data-options="1"' : ''}>${hasSpecs ? 'Choose' : 'Add'}</button>`}
+                : `<button class="add-btn" data-add="${p.id}"${hasPickable ? ' data-options="1"' : ''}>${hasPickable ? 'Choose' : 'Add'}</button>`}
             </div>
           </div>
         </div>`;
@@ -792,6 +793,16 @@
       const specsHtml = specs.map(s => {
         const isColor = RMColors.isColorField(s.label) || !!s.swatches;
         const hexOf = o => (s.swatches && s.swatches[o]) || RMColors.hexFor(o) || '#cbd5e1';
+        // Info-only field: show as a read-only detail row, never selectable.
+        if (s.static) {
+          return `
+        <div style="margin-bottom:10px;display:flex;gap:8px;font-size:13px">
+          <span style="font-weight:700;color:var(--dark);min-width:96px">${esc(s.label)}</span>
+          <span style="color:var(--muted);display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            ${(s.options || []).map(o => `${isColor ? `<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:13px;height:13px;border-radius:50%;background:${esc(hexOf(o))};border:1px solid rgba(0,0,0,0.25)"></span>${esc(o)}</span>` : esc(o)}`).join(isColor ? '' : ', ')}
+          </span>
+        </div>`;
+        }
         return `
         <div style="margin-bottom:12px">
           <div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:6px">${esc(s.label)}</div>

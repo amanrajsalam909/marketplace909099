@@ -422,6 +422,10 @@
           <label>Template name *</label>
           <input id="specName" type="text" placeholder="e.g. Fashion / Apparel">
         </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:14px">
+          <input type="checkbox" id="specStatic" style="width:18px;height:18px">
+          📄 Information only — fields are shown as product details, customers don't select them
+        </label>
         <div id="specFields"></div>
         <button type="button" class="btn btn-outline btn-sm" id="specAddField" style="margin-top:6px">+ Add spec field</button>
         <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
@@ -1747,6 +1751,7 @@
     function resetSpecForm() {
       document.getElementById('specId').value = '';
       document.getElementById('specName').value = '';
+      document.getElementById('specStatic').checked = false;
       const box = document.getElementById('specFields');
       box.innerHTML = '';
       box.appendChild(specFieldRow('', []));
@@ -1757,6 +1762,7 @@
     function editSpecTemplate(t) {
       document.getElementById('specId').value = t.id;
       document.getElementById('specName').value = t.name || '';
+      document.getElementById('specStatic').checked = !!t.is_static;
       const box = document.getElementById('specFields');
       box.innerHTML = '';
       (t.fields || []).forEach(f => box.appendChild(specFieldRow(f.label, f.options, f.swatches)));
@@ -1776,7 +1782,7 @@
         if (Object.keys(swatches).length) field.swatches = swatches;
         return field;
       }).filter(f => f.label && f.options.length);
-      return { id: document.getElementById('specId').value || undefined, name: document.getElementById('specName').value.trim(), fields };
+      return { id: document.getElementById('specId').value || undefined, name: document.getElementById('specName').value.trim(), is_static: document.getElementById('specStatic').checked, fields };
     }
 
     document.getElementById('specAddField').addEventListener('click', () => {
@@ -1808,7 +1814,7 @@
       el.innerHTML = lastSpecTemplates.map(t => `
         <div class="list-row" style="align-items:center">
           <div class="row-info">
-            <div class="row-title">${esc(t.name)}${t.is_active ? '' : ' <span style="font-size:11px;color:var(--muted)">(hidden)</span>'}</div>
+            <div class="row-title">${esc(t.name)}${t.is_static ? ' <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:999px;background:#e0e7ff;color:#3730a3;margin-left:4px">Info only</span>' : ''}${t.is_active ? '' : ' <span style="font-size:11px;color:var(--muted)">(hidden)</span>'}</div>
             <div class="row-sub">${(t.fields || []).map(f => `<b>${esc(f.label)}</b>: ${esc((f.options || []).join(', '))}`).join(' &nbsp;·&nbsp; ') || 'No fields'}</div>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -1842,7 +1848,7 @@
         const t = lastSpecTemplates.find(x => x.id === tg.dataset.specToggle);
         if (!t) return;
         try {
-          await apiPost({ action: 'save-spec-template', id: t.id, name: t.name, fields: t.fields, is_active: tg.dataset.active !== 'true', sort_order: t.sort_order });
+          await apiPost({ action: 'save-spec-template', id: t.id, name: t.name, fields: t.fields, is_active: tg.dataset.active !== 'true', is_static: t.is_static, sort_order: t.sort_order });
           loadSpecTemplates();
         } catch (err) { toast(err.message); }
         return;

@@ -54,6 +54,18 @@ COMMENT ON COLUMN products.specs IS 'Denormalized vendor-chosen availability: [{
 
 
 -- ─────────────────────────────────────────────────────────────────────────
+--  PART 1b (run this) — "information only" templates
+--  A static template's fields are shown as product details only; the customer
+--  does NOT pick a value (unlike size/colour). Vendors still tick which values
+--  apply. Safe to re-run.
+-- ─────────────────────────────────────────────────────────────────────────
+
+ALTER TABLE spec_templates ADD COLUMN IF NOT EXISTS is_static BOOLEAN NOT NULL DEFAULT false;
+
+COMMENT ON COLUMN spec_templates.is_static IS 'true = info-only template (displayed as product details, not selectable at checkout).';
+
+
+-- ─────────────────────────────────────────────────────────────────────────
 --  PART 2 — carry the chosen specs onto placed orders
 --  (run only after PART 1 + the app are verified)
 --

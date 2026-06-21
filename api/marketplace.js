@@ -78,7 +78,7 @@ module.exports = async (req, res) => {
       if (action === 'spec-templates') {
         const { data, error } = await supabase
           .from('spec_templates')
-          .select('id, name, fields, sort_order')
+          .select('id, name, fields, is_static, sort_order')
           .eq('is_active', true)
           .order('sort_order')
           .order('name');

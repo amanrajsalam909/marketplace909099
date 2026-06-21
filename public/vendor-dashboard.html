@@ -933,6 +933,13 @@
       box.innerHTML = '';
       const t = specTemplates.find(x => x.id === templateId);
       if (!t) return;
+      const isStatic = !!t.is_static;
+      if (isStatic) {
+        const hint = document.createElement('div');
+        hint.style.cssText = 'font-size:12px;color:#3730a3;background:#e0e7ff;border-radius:8px;padding:7px 10px;margin-bottom:10px';
+        hint.textContent = '📄 Information only — tick the details that apply. Customers see these as product info (they don’t select).';
+        box.appendChild(hint);
+      }
       const savedMap = {};
       (saved || []).forEach(s => { savedMap[s.key] = s.options || []; });
       (t.fields || []).forEach(f => {
@@ -944,6 +951,7 @@
         row.innerHTML = `<div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:5px">${esc(f.label)}</div>
           <div class="spec-opts" data-key="${esc(f.key)}" data-label="${esc(f.label)}" style="display:flex;flex-wrap:wrap;gap:6px"></div>`;
         const opts = row.querySelector('.spec-opts');
+        if (isStatic) opts.dataset.static = '1';
         if (isColor) opts.dataset.swatches = JSON.stringify(Object.fromEntries((f.options || []).map(o => [o, hexOf(o)])));
         const style = on => 'cursor:pointer;font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);' +
           (on ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : 'background:var(--bg);color:var(--dark)');
@@ -974,6 +982,7 @@
       return [...document.querySelectorAll('#pSpecFields .spec-opts')].map(g => {
         const options = [...g.querySelectorAll('.spec-chip[aria-pressed="true"]')].map(c => c.dataset.opt);
         const field = { key: g.dataset.key, label: g.dataset.label, options };
+        if (g.dataset.static) field.static = true;
         if (g.dataset.swatches) {
           try {
             const all = JSON.parse(g.dataset.swatches);
