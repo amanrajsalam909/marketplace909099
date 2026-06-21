@@ -124,7 +124,7 @@ module.exports = async (req, res) => {
       if (action === 'spec-templates') {
         const { data, error } = await supabase
           .from('spec_templates')
-          .select('id, name, fields, is_active, is_static, sort_order')
+          .select('id, name, fields, is_active, is_static, track_variant_stock, sort_order')
           .order('sort_order', { ascending: true })
           .order('name', { ascending: true });
         if (error) throw error;
@@ -439,6 +439,8 @@ module.exports = async (req, res) => {
           fields,
           is_active: req.body.is_active !== false,
           is_static: isStatic,
+          // Variant stock only makes sense for pickable templates.
+          track_variant_stock: !isStatic && req.body.track_variant_stock === true,
           sort_order: Math.trunc(Number(req.body.sort_order)) || 0,
           updated_at: new Date().toISOString()
         };

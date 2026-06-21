@@ -78,7 +78,7 @@ module.exports = async (req, res) => {
       if (action === 'spec-templates') {
         const { data, error } = await supabase
           .from('spec_templates')
-          .select('id, name, fields, is_static, sort_order')
+          .select('id, name, fields, is_static, track_variant_stock, sort_order')
           .eq('is_active', true)
           .order('sort_order')
           .order('name');
@@ -94,7 +94,7 @@ module.exports = async (req, res) => {
 
         let query = supabase
           .from('products')
-          .select('id, name, category, description, price, stock, image_url, vendor_id, active, product_no, spec_template_id, specs')
+          .select('id, name, category, description, price, stock, image_url, vendor_id, active, product_no, spec_template_id, specs, product_variants(specs, stock)')
           .eq('active', true);
 
         if (vendorId) {

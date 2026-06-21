@@ -789,6 +789,8 @@
       if (!p) return;
       const out = typeof p.stock === 'number' && p.stock <= 0;
       const specs = Array.isArray(p.specs) ? p.specs : [];
+      const variants = Array.isArray(p.product_variants) ? p.product_variants : [];
+      const isVariant = variants.length > 0;
 
       const specsHtml = specs.map(s => {
         const isColor = RMColors.isColorField(s.label) || !!s.swatches;
@@ -808,7 +810,9 @@
           <div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:6px">${esc(s.label)}</div>
           <div class="pd-opts" data-key="${esc(s.key)}" data-label="${esc(s.label)}" style="display:flex;flex-wrap:wrap;gap:8px">
             ${(s.options || []).map((o, oi) => {
-              const sel = (s.options.length === 1 || oi === 0);
+              // Variant products start unselected (customer must choose an in-stock combo);
+              // simple pickable products keep the first option pre-selected.
+              const sel = !isVariant && (s.options.length === 1 || oi === 0);
               return `<button type="button" class="pd-opt" data-opt="${esc(o)}" aria-pressed="${sel ? 'true' : 'false'}"
                 style="cursor:pointer;font-size:13px;font-weight:600;padding:7px 14px;border-radius:999px;display:inline-flex;align-items:center;gap:7px;border:1px solid ${sel ? 'var(--primary)' : 'var(--border)'};${sel ? 'background:var(--primary);color:#fff' : 'background:#fff;color:var(--dark)'}">${isColor ? `<span style="width:15px;height:15px;border-radius:50%;background:${esc(hexOf(o))};border:1px solid rgba(0,0,0,0.25)"></span>` : ''}${esc(o)}</button>`;
             }).join('')}
@@ -828,19 +832,71 @@
             : `<button id="pdAdd" data-prod-add="${p.id}" class="btn-primary" style="width:100%;margin-top:8px;padding:12px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer">Add to cart</button>`}
         </div>`);
 
-      // Single-select per field
-      document.getElementById('modalBody').querySelectorAll('.pd-opts').forEach(group => {
+      const modalBody = document.getElementById('modalBody');
+      const groups = [...modalBody.querySelectorAll('.pd-opts')];
+
+      const selectChip = (group, chip) => {
+        group.querySelectorAll('.pd-opt').forEach(c => {
+          c.setAttribute('aria-pressed', 'false');
+          c.style.border = '1px solid var(--border)'; c.style.background = '#fff'; c.style.color = 'var(--dark)';
+        });
+        chip.setAttribute('aria-pressed', 'true');
+        chip.style.border = '1px solid var(--primary)'; chip.style.background = 'var(--primary)'; chip.style.color = '#fff';
+      };
+
+      // ---- Variant cross-filtering: disable combos with no in-stock variant ----
+      const matchKeys = (s, partial) => Object.keys(partial).every(k => s[k] === partial[k]);
+      const someInStock = partial => variants.some(v => v.stock > 0 && matchKeys(v.specs || {}, partial));
+      const stockOf = combo => {
+        const ks = Object.keys(combo);
+        const v = variants.find(v => ks.length === Object.keys(v.specs || {}).length && matchKeys(v.specs || {}, combo));
+        return v ? v.stock : 0;
+      };
+      const currentSelection = () => {
+        const sel = {};
+        groups.forEach(g => { const c = g.querySelector('.pd-opt[aria-pressed="true"]'); if (c) sel[g.dataset.label] = c.dataset.opt; });
+        return sel;
+      };
+
+      function refreshVariants() {
+        // 1. Disable options that can't form an in-stock combo with the rest.
+        groups.forEach(g => {
+          const sel = currentSelection(); delete sel[g.dataset.label];
+          g.querySelectorAll('.pd-opt').forEach(chip => {
+            const ok = someInStock({ ...sel, [g.dataset.label]: chip.dataset.opt });
+            chip.style.opacity = ok ? '' : '0.35';
+            chip.style.pointerEvents = ok ? '' : 'none';
+            chip.style.textDecoration = ok ? '' : 'line-through';
+            chip.dataset.off = ok ? '' : '1';
+          });
+        });
+        // 2. If a selected option got disabled, switch it to the first in-stock one.
+        groups.forEach(g => {
+          const cur = g.querySelector('.pd-opt[aria-pressed="true"]');
+          if (cur && cur.dataset.off === '1') {
+            const alt = [...g.querySelectorAll('.pd-opt')].find(c => c.dataset.off !== '1');
+            if (alt) selectChip(g, alt);
+          }
+        });
+        // 3. Update the Add button from the final selection.
+        const btn = document.getElementById('pdAdd');
+        if (!btn) return;
+        const allChosen = groups.length && groups.every(g => g.querySelector('.pd-opt[aria-pressed="true"]'));
+        if (!allChosen) { btn.disabled = true; btn.textContent = 'Select options'; return; }
+        const st = stockOf(currentSelection());
+        if (st <= 0) { btn.disabled = true; btn.textContent = 'Out of stock'; }
+        else { btn.disabled = false; btn.textContent = st <= 5 ? `Add to cart — only ${st} left` : 'Add to cart'; }
+      }
+
+      groups.forEach(group => {
         group.addEventListener('click', e => {
           const chip = e.target.closest('.pd-opt');
-          if (!chip) return;
-          group.querySelectorAll('.pd-opt').forEach(c => {
-            c.setAttribute('aria-pressed', 'false');
-            c.style.border = '1px solid var(--border)'; c.style.background = '#fff'; c.style.color = 'var(--dark)';
-          });
-          chip.setAttribute('aria-pressed', 'true');
-          chip.style.border = '1px solid var(--primary)'; chip.style.background = 'var(--primary)'; chip.style.color = '#fff';
+          if (!chip || chip.dataset.off === '1') return;
+          selectChip(group, chip);
+          if (isVariant) refreshVariants();
         });
       });
+      if (isVariant) refreshVariants();
     }
 
     function addToCart(productId, specs) {

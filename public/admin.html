@@ -422,9 +422,13 @@
           <label>Template name *</label>
           <input id="specName" type="text" placeholder="e.g. Fashion / Apparel">
         </div>
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:14px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px">
           <input type="checkbox" id="specStatic" style="width:18px;height:18px">
           📄 Information only — fields are shown as product details, customers don't select them
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:14px" id="specVariantWrap">
+          <input type="checkbox" id="specVariant" style="width:18px;height:18px">
+          📦 Track stock per variant — each size/colour combination has its own stock count
         </label>
         <div id="specFields"></div>
         <button type="button" class="btn btn-outline btn-sm" id="specAddField" style="margin-top:6px">+ Add spec field</button>
@@ -1753,6 +1757,7 @@
       document.getElementById('specId').value = '';
       document.getElementById('specName').value = '';
       document.getElementById('specStatic').checked = false;
+      document.getElementById('specVariant').checked = false;
       const box = document.getElementById('specFields');
       box.innerHTML = '';
       box.appendChild(specFieldRow('', []));
@@ -1765,6 +1770,7 @@
       document.getElementById('specId').value = t.id;
       document.getElementById('specName').value = t.name || '';
       document.getElementById('specStatic').checked = !!t.is_static;
+      document.getElementById('specVariant').checked = !!t.track_variant_stock;
       const box = document.getElementById('specFields');
       box.innerHTML = '';
       (t.fields || []).forEach(f => box.appendChild(specFieldRow(f.label, f.options, f.swatches)));
@@ -1778,6 +1784,9 @@
     // Show/hide the per-row options + colour chart depending on the static flag.
     function applyStaticMode() {
       const stat = document.getElementById('specStatic').checked;
+      // Variant stock applies only to pickable (non-info) templates.
+      document.getElementById('specVariantWrap').style.display = stat ? 'none' : 'flex';
+      if (stat) document.getElementById('specVariant').checked = false;
       document.querySelectorAll('#specFields .spec-field-row').forEach(r => {
         r.querySelector('.sf-options-wrap').style.display = stat ? 'none' : '';
         r.querySelector('.sf-colors').style.display = stat ? 'none' : '';
@@ -1799,7 +1808,13 @@
         if (Object.keys(swatches).length) field.swatches = swatches;
         return field;
       }).filter(f => f.label && (isStatic || f.options.length));
-      return { id: document.getElementById('specId').value || undefined, name: document.getElementById('specName').value.trim(), is_static: isStatic, fields };
+      return {
+        id: document.getElementById('specId').value || undefined,
+        name: document.getElementById('specName').value.trim(),
+        is_static: isStatic,
+        track_variant_stock: !isStatic && document.getElementById('specVariant').checked,
+        fields
+      };
     }
 
     document.getElementById('specAddField').addEventListener('click', () => {
@@ -1833,7 +1848,7 @@
       el.innerHTML = lastSpecTemplates.map(t => `
         <div class="list-row" style="align-items:center">
           <div class="row-info">
-            <div class="row-title">${esc(t.name)}${t.is_static ? ' <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:999px;background:#e0e7ff;color:#3730a3;margin-left:4px">Info only</span>' : ''}${t.is_active ? '' : ' <span style="font-size:11px;color:var(--muted)">(hidden)</span>'}</div>
+            <div class="row-title">${esc(t.name)}${t.is_static ? ' <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:999px;background:#e0e7ff;color:#3730a3;margin-left:4px">Info only</span>' : ''}${t.track_variant_stock ? ' <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;margin-left:4px">Variant stock</span>' : ''}${t.is_active ? '' : ' <span style="font-size:11px;color:var(--muted)">(hidden)</span>'}</div>
             <div class="row-sub">${(t.fields || []).map(f => `<b>${esc(f.label)}</b>: ${esc((f.options || []).join(', '))}`).join(' &nbsp;·&nbsp; ') || 'No fields'}</div>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -1867,7 +1882,7 @@
         const t = lastSpecTemplates.find(x => x.id === tg.dataset.specToggle);
         if (!t) return;
         try {
-          await apiPost({ action: 'save-spec-template', id: t.id, name: t.name, fields: t.fields, is_active: tg.dataset.active !== 'true', is_static: t.is_static, sort_order: t.sort_order });
+          await apiPost({ action: 'save-spec-template', id: t.id, name: t.name, fields: t.fields, is_active: tg.dataset.active !== 'true', is_static: t.is_static, track_variant_stock: t.track_variant_stock, sort_order: t.sort_order });
           loadSpecTemplates();
         } catch (err) { toast(err.message); }
         return;

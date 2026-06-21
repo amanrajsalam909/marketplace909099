@@ -532,6 +532,7 @@
     let allOrders = [];
     let allProducts = [];
     let specTemplates = [];
+    let editingVariants = [];   // product_variants of the product being edited
     let statusFilter = '';
     // Latest loaded data for the Offers/Accounting tabs, kept so the Export
     // control can snapshot exactly what the vendor is looking at.
@@ -931,6 +932,7 @@
     function renderSpecChips(templateId, saved) {
       const box = document.getElementById('pSpecFields');
       box.innerHTML = '';
+      setStockFieldVisible(true);   // shown unless this is a variant template
       const t = specTemplates.find(x => x.id === templateId);
       if (!t) return;
       const isStatic = !!t.is_static;
@@ -986,6 +988,99 @@
         });
         box.appendChild(row);
       });
+
+      // Variant stock: a stock box per combination of the ticked options.
+      const isVariant = !!t.track_variant_stock;
+      setStockFieldVisible(!isVariant);
+      if (isVariant) {
+        const grid = document.createElement('div');
+        grid.id = 'pVariantGrid';
+        grid.style.cssText = 'margin-top:12px;border-top:1px dashed var(--border);padding-top:12px';
+        box.appendChild(grid);
+        renderVariantGrid();
+      }
+    }
+
+    // Canonical key for a {label:value} combo so saved variants can be matched
+    // regardless of key order.
+    function canonSpecs(specs) {
+      return JSON.stringify(Object.keys(specs).sort().map(k => [k, specs[k]]));
+    }
+
+    // Build the per-combination stock grid from the currently ticked options.
+    function renderVariantGrid() {
+      const grid = document.getElementById('pVariantGrid');
+      if (!grid) return;
+      // Preserve any numbers the vendor already typed before re-rendering.
+      const typed = {};
+      grid.querySelectorAll('.var-stock').forEach(i => { typed[i.dataset.combo] = i.value; });
+
+      const groups = [...document.querySelectorAll('#pSpecFields .spec-opts')].map(g => ({
+        label: g.dataset.label,
+        opts: [...g.querySelectorAll('.spec-chip[aria-pressed="true"]')].map(c => c.dataset.opt)
+      }));
+
+      if (!groups.length || groups.some(g => !g.opts.length)) {
+        grid.innerHTML = '<div style="font-size:12px;color:var(--muted)">Tick at least one option in each field above to set per-variant stock.</div>';
+        updateVariantTotal();
+        return;
+      }
+
+      // Cartesian product of the ticked options → one row per combination.
+      let combos = [{}];
+      groups.forEach(g => {
+        const next = [];
+        combos.forEach(c => g.opts.forEach(o => next.push({ ...c, [g.label]: o })));
+        combos = next;
+      });
+
+      const savedByKey = {};
+      (editingVariants || []).forEach(v => { savedByKey[canonSpecs(v.specs || {})] = v.stock; });
+
+      grid.innerHTML = '<div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:8px">📦 Stock per variant</div>' +
+        combos.map(c => {
+          const key = canonSpecs(c);
+          const prev = typed[key] !== undefined ? typed[key] : (savedByKey[key] !== undefined ? savedByKey[key] : '');
+          const label = Object.entries(c).map(([k, v]) => esc(v)).join(' · ');
+          return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0">
+            <span style="font-size:13px;font-weight:600;color:var(--dark)">${label}</span>
+            <input class="var-stock" type="number" min="0" step="1" value="${prev}" placeholder="0"
+              data-combo='${esc(key)}' data-specs='${esc(JSON.stringify(c))}'
+              style="width:90px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg)">
+          </div>`;
+        }).join('') +
+        '<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--dark);border-top:1px solid var(--border);margin-top:8px;padding-top:8px"><span>Total stock</span><span id="pVariantTotal">0</span></div>';
+
+      grid.querySelectorAll('.var-stock').forEach(i => i.addEventListener('input', updateVariantTotal));
+      updateVariantTotal();
+    }
+
+    function updateVariantTotal() {
+      const el = document.getElementById('pVariantTotal');
+      if (!el) return;
+      const sum = [...document.querySelectorAll('#pVariantGrid .var-stock')]
+        .reduce((s, i) => s + (parseInt(i.value, 10) || 0), 0);
+      el.textContent = sum;
+    }
+
+    // Show/hide the single Stock field (hidden when tracking per-variant stock).
+    function setStockFieldVisible(show) {
+      const wrap = document.getElementById('pStock').closest('div');
+      if (wrap) wrap.style.display = show ? '' : 'none';
+    }
+
+    // Read the per-combination grid into [{specs, stock}].
+    function readVariants() {
+      return [...document.querySelectorAll('#pVariantGrid .var-stock')].map(i => ({
+        specs: JSON.parse(i.dataset.specs),
+        stock: Math.max(0, parseInt(i.value, 10) || 0)
+      }));
+    }
+
+    // True when the selected template tracks per-variant stock.
+    function selectedTemplateTracksVariants() {
+      const t = specTemplates.find(x => x.id === document.getElementById('pSpecTemplate').value);
+      return !!(t && t.track_variant_stock && !t.is_static);
     }
 
     // Collect ticked options into the denormalized snapshot stored on the product.
@@ -1013,7 +1108,13 @@
       return [...textFields, ...chipFields];
     }
 
-    document.getElementById('pSpecTemplate').addEventListener('change', e => renderSpecChips(e.target.value, []));
+    document.getElementById('pSpecTemplate').addEventListener('change', e => { editingVariants = []; renderSpecChips(e.target.value, []); });
+
+    // Availability chips drive the variant grid — re-render it (in variant mode)
+    // after any chip toggles. One delegated listener (fires after the chip's own).
+    document.getElementById('pSpecFields').addEventListener('click', e => {
+      if (e.target.closest('.spec-chip') && document.getElementById('pVariantGrid')) renderVariantGrid();
+    });
 
     function renderProducts() {
       const el = document.getElementById('productsList');
@@ -1055,6 +1156,7 @@
       document.getElementById('pDesc').value = product ? (product.description || '') : '';
       document.getElementById('pNo').value = product ? (product.product_no || '') : '';
       document.getElementById('pSpecTemplate').value = product ? (product.spec_template_id || '') : '';
+      editingVariants = product && Array.isArray(product.product_variants) ? product.product_variants : [];
       renderSpecChips(product ? (product.spec_template_id || '') : '', product ? (product.specs || []) : []);
       formEl.classList.add('open');
       document.getElementById('pName').focus();
@@ -1064,6 +1166,8 @@
       document.getElementById('pForm').reset();
       document.getElementById('pId').value = '';
       document.getElementById('pSpecFields').innerHTML = '';
+      editingVariants = [];
+      setStockFieldVisible(true);
     }
 
     toggleFormBtn.addEventListener('click', () => formEl.classList.contains('open') ? closeForm() : openForm(null));
@@ -1088,6 +1192,7 @@
         spec_template_id: document.getElementById('pSpecTemplate').value || null,
         specs: readSpecs()
       };
+      if (selectedTemplateTracksVariants()) product.variants = readVariants();
 
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
