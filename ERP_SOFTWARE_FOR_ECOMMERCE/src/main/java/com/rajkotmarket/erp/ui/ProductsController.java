@@ -13,6 +13,7 @@ import javafx.collections.ObservableList;
 import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.geometry.Insets;
+import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.control.cell.TextFieldTableCell;
@@ -21,6 +22,8 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
 
 import com.rajkotmarket.erp.util.Exporter;
 
@@ -404,21 +407,41 @@ public class ProductsController {
         HBox actions = new HBox(8, addBtn, delBtn, exportBtn, spacer, totalLabel);
         actions.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
-        VBox content = new VBox(10, actions, tv,
-                new Label("Tip: double-click a Stock cell to edit. Changes save when you click \"Save changes\"."));
-        content.setPadding(new Insets(4));
+        Label heading = new Label("Size / colour stock for \"" + p.getName() + "\"");
+        heading.getStyleClass().add("dialog-title");
+        Label tip = new Label("Tip: double-click a Stock cell to edit. Changes apply when you click \"Save changes\".");
+        tip.setWrapText(true);
 
-        Dialog<Boolean> dlg = new Dialog<>();
-        dlg.setTitle("Variants");
-        dlg.setHeaderText("Size / colour stock for \"" + p.getName() + "\"");
-        ButtonType saveBt = new ButtonType("Save changes", ButtonBar.ButtonData.OK_DONE);
-        dlg.getDialogPane().getButtonTypes().addAll(saveBt, ButtonType.CLOSE);
-        dlg.getDialogPane().setContent(content);
-        dlg.setResizable(true);
-        dlg.setResultConverter(bt -> bt == saveBt);
+        Button saveBtn = new Button("Save changes");
+        saveBtn.getStyleClass().add("primary-button");
+        Button closeBtn = new Button("Close");
+        Region foot = new Region();
+        HBox.setHgrow(foot, Priority.ALWAYS);
+        HBox footer = new HBox(8, foot, closeBtn, saveBtn);
+        footer.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
 
-        Optional<Boolean> res = dlg.showAndWait();
-        if (res.isPresent() && res.get()) {
+        VBox.setVgrow(tv, Priority.ALWAYS);   // table grows when the window is maximized
+        VBox content = new VBox(12, heading, actions, tv, tip, footer);
+        content.setPadding(new Insets(16));
+        content.getStyleClass().add("dialog-body");
+
+        // A real Stage (not a Dialog) so the window can be resized AND maximized.
+        Stage stage = new Stage();
+        stage.setTitle("Variants — " + p.getName());
+        stage.initModality(Modality.APPLICATION_MODAL);
+        if (table.getScene() != null) stage.initOwner(table.getScene().getWindow());
+        Scene scene = new Scene(content, 720, 540);
+        var css = getClass().getResource("/css/app.css");
+        if (css != null) scene.getStylesheets().add(css.toExternalForm());
+        stage.setScene(scene);
+        stage.setResizable(true);
+
+        final boolean[] doSave = {false};
+        saveBtn.setOnAction(e -> { doSave[0] = true; stage.close(); });
+        closeBtn.setOnAction(e -> stage.close());
+
+        stage.showAndWait();
+        if (doSave[0]) {
             List<ProductVariant> toSave = new ArrayList<>(rows);
             runVoid(() -> productDao.saveVariants(p.getId(), toSave),
                     "Saved " + toSave.size() + " variant(s) for \"" + p.getName() + "\".");
