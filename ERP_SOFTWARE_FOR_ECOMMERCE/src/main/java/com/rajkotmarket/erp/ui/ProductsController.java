@@ -15,9 +15,11 @@ import javafx.fxml.FXML;
 import javafx.geometry.Insets;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.control.cell.TextFieldTableCell;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import com.rajkotmarket.erp.util.Exporter;
@@ -26,7 +28,9 @@ import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -211,6 +215,16 @@ public class ProductsController {
         Product sel = table.getSelectionModel().getSelectedItem();
         if (sel == null) return;
 
+        // Variant products keep their stock per size/colour — adjusting the single
+        // total here would break the sum. Route the user to the variants editor.
+        if (sel.getVariantCount() > 0) {
+            info("Per-variant stock",
+                    "\"" + sel.getName() + "\" tracks stock per size/colour combination.\n" +
+                    "Use the \"Variants\" button to adjust each combination's stock.");
+            onVariants();
+            return;
+        }
+
         Dialog<Integer> dlg = new Dialog<>();
         dlg.setTitle("Adjust Stock");
         dlg.setHeaderText("Adjust stock for \"" + sel.getName() + "\"\nCurrent stock: " + sel.getStock());
@@ -310,48 +324,160 @@ public class ProductsController {
         Product sel = table.getSelectionModel().getSelectedItem();
         if (sel == null) return;
 
-        Task<List<ProductVariant>> t = new Task<>() {
-            @Override protected List<ProductVariant> call() throws Exception {
-                return productDao.variants(sel.getId());
+        Task<Object[]> t = new Task<>() {
+            @Override protected Object[] call() throws Exception {
+                return new Object[]{ productDao.variants(sel.getId()), productDao.templateOptions(sel.getId()) };
             }
         };
-        runAsync(t, vs -> showVariantsDialog(sel, vs));
+        runAsync(t, arr -> {
+            @SuppressWarnings("unchecked") List<ProductVariant> vs = (List<ProductVariant>) arr[0];
+            @SuppressWarnings("unchecked") LinkedHashMap<String, List<String>> opts =
+                    (LinkedHashMap<String, List<String>>) arr[1];
+            showVariantsDialog(sel, vs, opts);
+        });
     }
 
-    private void showVariantsDialog(Product p, List<ProductVariant> variants) {
-        TableView<ProductVariant> tv = new TableView<>(FXCollections.observableArrayList(variants));
-        tv.setPrefSize(540, 380);
+    private void showVariantsDialog(Product p, List<ProductVariant> variants,
+                                    LinkedHashMap<String, List<String>> options) {
+        ObservableList<ProductVariant> rows = FXCollections.observableArrayList(variants);
+
+        TableView<ProductVariant> tv = new TableView<>(rows);
+        tv.setPrefSize(560, 380);
+        tv.setEditable(true);
         tv.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+        tv.setPlaceholder(new Label("No combinations yet — use \"+ Add combination\"."));
 
         TableColumn<ProductVariant, String> combo = new TableColumn<>("Combination");
         combo.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(c.getValue().getCombination()));
-        TableColumn<ProductVariant, Number> stk = new TableColumn<>("Stock");
-        stk.setCellValueFactory(c -> new javafx.beans.property.SimpleIntegerProperty(c.getValue().getStock()));
-        stk.setMaxWidth(120);
-        stk.setCellFactory(c -> new TableCell<>() {
-            @Override protected void updateItem(Number v, boolean empty) {
-                super.updateItem(v, empty);
-                if (empty || v == null) { setText(null); getStyleClass().remove("low-stock-cell"); return; }
-                setText(String.valueOf(v.intValue()));
-                if (v.intValue() <= 5) {
-                    if (!getStyleClass().contains("low-stock-cell")) getStyleClass().add("low-stock-cell");
-                } else getStyleClass().remove("low-stock-cell");
-            }
-        });
+        combo.setEditable(false);
+
+        TableColumn<ProductVariant, String> stk = new TableColumn<>("Stock");
+        stk.setMaxWidth(140);
+        stk.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(String.valueOf(c.getValue().getStock())));
+        stk.setCellFactory(TextFieldTableCell.forTableColumn());
         tv.getColumns().addAll(List.of(combo, stk));
 
-        int total = variants.stream().mapToInt(ProductVariant::getStock).sum();
-        if (variants.isEmpty()) {
-            tv.setPlaceholder(new Label("No size/colour variants — this product uses a single stock of " + p.getStock() + "."));
-        }
+        Label totalLabel = new Label();
+        Runnable refreshTotal = () -> totalLabel.setText(
+                "Total: " + rows.stream().mapToInt(ProductVariant::getStock).sum()
+                + "  (" + rows.size() + (rows.size() == 1 ? " variant)" : " variants)"));
+        refreshTotal.run();
 
-        Dialog<Void> dlg = new Dialog<>();
+        stk.setOnEditCommit(ev -> {
+            int v;
+            try { v = Math.max(0, Integer.parseInt(ev.getNewValue().trim())); }
+            catch (NumberFormatException e) { v = ev.getRowValue().getStock(); }
+            ev.getRowValue().setStock(v);
+            tv.refresh();
+            refreshTotal.run();
+        });
+
+        Button addBtn = new Button("+ Add combination");
+        addBtn.setDisable(options.isEmpty());
+        addBtn.setOnAction(e -> {
+            ProductVariant nv = promptAddCombination(options);
+            if (nv == null) return;
+            boolean dup = rows.stream().anyMatch(r -> r.getCombination().equalsIgnoreCase(nv.getCombination()));
+            if (dup) { error("Duplicate", "That combination already exists."); return; }
+            rows.add(nv);
+            refreshTotal.run();
+        });
+
+        Button delBtn = new Button("Delete selected");
+        delBtn.disableProperty().bind(tv.getSelectionModel().selectedItemProperty().isNull());
+        delBtn.setOnAction(e -> {
+            ProductVariant sel = tv.getSelectionModel().getSelectedItem();
+            if (sel != null) { rows.remove(sel); refreshTotal.run(); }
+        });
+
+        Button exportBtn = new Button("⤓ Export");
+        exportBtn.setOnAction(e -> {
+            List<String> headers = List.of("Product", "Combination", "Stock");
+            List<List<Object>> exportRows = new ArrayList<>();
+            for (ProductVariant v : rows) exportRows.add(Arrays.asList(p.getName(), v.getCombination(), v.getStock()));
+            Exporter.chooseAndExport(tv, "variants-" + (p.getProductNo() == null ? "product" : p.getProductNo()),
+                    "Variants", headers, exportRows);
+        });
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox actions = new HBox(8, addBtn, delBtn, exportBtn, spacer, totalLabel);
+        actions.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        VBox content = new VBox(10, actions, tv,
+                new Label("Tip: double-click a Stock cell to edit. Changes save when you click \"Save changes\"."));
+        content.setPadding(new Insets(4));
+
+        Dialog<Boolean> dlg = new Dialog<>();
         dlg.setTitle("Variants");
-        dlg.setHeaderText("Size / colour stock for \"" + p.getName() + "\""
-                + (variants.isEmpty() ? "" : "   (total " + total + " across " + variants.size() + " variants)"));
-        dlg.getDialogPane().setContent(tv);
-        dlg.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
-        dlg.showAndWait();
+        dlg.setHeaderText("Size / colour stock for \"" + p.getName() + "\"");
+        ButtonType saveBt = new ButtonType("Save changes", ButtonBar.ButtonData.OK_DONE);
+        dlg.getDialogPane().getButtonTypes().addAll(saveBt, ButtonType.CLOSE);
+        dlg.getDialogPane().setContent(content);
+        dlg.setResizable(true);
+        dlg.setResultConverter(bt -> bt == saveBt);
+
+        Optional<Boolean> res = dlg.showAndWait();
+        if (res.isPresent() && res.get()) {
+            List<ProductVariant> toSave = new ArrayList<>(rows);
+            runVoid(() -> productDao.saveVariants(p.getId(), toSave),
+                    "Saved " + toSave.size() + " variant(s) for \"" + p.getName() + "\".");
+        }
+    }
+
+    /** Small dialog to pick one option per field and build a new combination. */
+    private ProductVariant promptAddCombination(LinkedHashMap<String, List<String>> options) {
+        Dialog<ProductVariant> d = new Dialog<>();
+        d.setTitle("Add combination");
+        ButtonType ok = new ButtonType("Add", ButtonBar.ButtonData.OK_DONE);
+        d.getDialogPane().getButtonTypes().addAll(ok, ButtonType.CANCEL);
+
+        GridPane g = new GridPane();
+        g.setHgap(10); g.setVgap(10); g.setPadding(new Insets(14));
+        Map<String, ComboBox<String>> pickers = new LinkedHashMap<>();
+        int r = 0;
+        for (Map.Entry<String, List<String>> e : options.entrySet()) {
+            ComboBox<String> cb = new ComboBox<>(FXCollections.observableArrayList(e.getValue()));
+            cb.getSelectionModel().selectFirst();
+            pickers.put(e.getKey(), cb);
+            g.addRow(r++, new Label(e.getKey()), cb);
+        }
+        d.getDialogPane().setContent(g);
+
+        d.setResultConverter(bt -> {
+            if (bt != ok) return null;
+            LinkedHashMap<String, String> specs = new LinkedHashMap<>();
+            for (Map.Entry<String, ComboBox<String>> e : pickers.entrySet()) {
+                String val = e.getValue().getValue();
+                if (val == null || val.isBlank()) return null;   // require every field
+                specs.put(e.getKey(), val);
+            }
+            return new ProductVariant(null, formatCombination(specs), specsToJson(specs), 0);
+        });
+        return d.showAndWait().orElse(null);
+    }
+
+    // Combination label sorted by key, to match the DB's formatting (string_agg ORDER BY key).
+    private static String formatCombination(Map<String, String> specs) {
+        return specs.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> e.getKey() + ": " + e.getValue())
+                .reduce((a, b) -> a + " · " + b).orElse("");
+    }
+
+    private static String specsToJson(Map<String, String> specs) {
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, String> e : specs.entrySet()) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append(jsonStr(e.getKey())).append(':').append(jsonStr(e.getValue()));
+        }
+        return sb.append('}').toString();
+    }
+
+    private static String jsonStr(String s) {
+        return '"' + s.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
     }
 
     // -- product add/edit form ---------------------------------------------

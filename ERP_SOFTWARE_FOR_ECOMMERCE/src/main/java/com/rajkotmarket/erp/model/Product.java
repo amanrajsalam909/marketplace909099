@@ -17,6 +17,7 @@ public class Product {
     private BigDecimal price = BigDecimal.ZERO;
     private int stock;
     private boolean active = true;
+    private int variantCount;     // number of product_variants rows (0 = single-stock product)
 
     public Product() { }
 
@@ -30,6 +31,7 @@ public class Product {
     public BigDecimal getPrice()       { return price; }
     public int getStock()              { return stock; }
     public boolean isActive()          { return active; }
+    public int getVariantCount()       { return variantCount; }
 
     public void setId(String v)            { this.id = v; }
     public void setProductNo(String v)     { this.productNo = v; }
@@ -41,4 +43,5 @@ public class Product {
     public void setPrice(BigDecimal v)     { this.price = v == null ? BigDecimal.ZERO : v; }
     public void setStock(int v)            { this.stock = v; }
     public void setActive(boolean v)       { this.active = v; }
+    public void setVariantCount(int v)     { this.variantCount = v; }
 }

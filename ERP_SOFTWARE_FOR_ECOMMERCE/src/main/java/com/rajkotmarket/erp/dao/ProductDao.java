@@ -17,7 +17,8 @@ public class ProductDao {
 
     private static final String SELECT_BASE =
             "SELECT p.id, p.product_no, p.vendor_id, v.name AS vendor_name, " +
-            "       p.name, p.category, p.description, p.price, p.stock, p.active " +
+            "       p.name, p.category, p.description, p.price, p.stock, p.active, " +
+            "       (SELECT count(*) FROM product_variants pv WHERE pv.product_id = p.id) AS variant_count " +
             "FROM products p LEFT JOIN vendors v ON v.id = p.vendor_id ";
 
     /**
@@ -105,20 +106,126 @@ public class ProductDao {
      */
     public List<ProductVariant> variants(String productId) throws SQLException {
         String sql =
-                "SELECT (SELECT string_agg(key || ': ' || value, ' · ' ORDER BY key) " +
-                "          FROM jsonb_each_text(pv.specs)) AS combination, pv.stock " +
-                "FROM product_variants pv WHERE pv.product_id = ?::uuid ORDER BY 1";
+                "SELECT pv.id, pv.specs::text AS specs_json, pv.stock, " +
+                "       (SELECT string_agg(key || ': ' || value, ' · ' ORDER BY key) " +
+                "          FROM jsonb_each_text(pv.specs)) AS combination " +
+                "FROM product_variants pv WHERE pv.product_id = ?::uuid ORDER BY 4";
         List<ProductVariant> out = new ArrayList<>();
         try (Connection c = Database.getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setObject(1, productId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    out.add(new ProductVariant(rs.getString("combination"), rs.getInt("stock")));
+                    out.add(new ProductVariant(rs.getString("id"), rs.getString("combination"),
+                            rs.getString("specs_json"), rs.getInt("stock")));
                 }
             }
         }
         return out;
+    }
+
+    /**
+     * The pickable field options of a product's spec template, as an ordered
+     * map label → options (e.g. {"Size":[XS,S,M,…], "Colour":[Red,…]}). Used to
+     * add new combinations. Empty when the product has no template. The jsonb is
+     * unnested in SQL so no JSON parsing is needed in Java.
+     */
+    public java.util.LinkedHashMap<String, List<String>> templateOptions(String productId) throws SQLException {
+        String sql =
+                "SELECT f->>'label' AS label, opt AS value, " +
+                "       (f_ord - 1) AS field_ord, o_ord AS opt_ord " +
+                "FROM products p " +
+                "JOIN spec_templates st ON st.id = p.spec_template_id " +
+                "JOIN LATERAL jsonb_array_elements(st.fields) WITH ORDINALITY AS fields(f, f_ord) ON true " +
+                "JOIN LATERAL jsonb_array_elements_text(f->'options') WITH ORDINALITY AS opts(opt, o_ord) ON true " +
+                "WHERE p.id = ?::uuid " +
+                "ORDER BY field_ord, opt_ord";
+        java.util.LinkedHashMap<String, List<String>> out = new java.util.LinkedHashMap<>();
+        try (Connection c = Database.getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setObject(1, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.computeIfAbsent(rs.getString("label"), k -> new ArrayList<>()).add(rs.getString("value"));
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Replace a product's variant rows with the supplied set and keep
+     * products.stock as the cached SUM. Audited: a single inventory_log entry
+     * records the net product-level change. One transaction (product row locked).
+     */
+    public void saveVariants(String productId, List<ProductVariant> variants) throws SQLException {
+        Connection c = Database.getConnection();
+        boolean oldAuto = c.getAutoCommit();
+        try {
+            c.setAutoCommit(false);
+
+            int before; String name;
+            try (PreparedStatement ps = c.prepareStatement(
+                    "SELECT name, stock FROM products WHERE id = ?::uuid FOR UPDATE")) {
+                ps.setObject(1, productId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) throw new SQLException("Product not found: " + productId);
+                    name = rs.getString("name");
+                    before = rs.getInt("stock");
+                }
+            }
+
+            try (PreparedStatement ps = c.prepareStatement(
+                    "DELETE FROM product_variants WHERE product_id = ?::uuid")) {
+                ps.setObject(1, productId);
+                ps.executeUpdate();
+            }
+
+            int total = 0;
+            if (!variants.isEmpty()) {
+                try (PreparedStatement ps = c.prepareStatement(
+                        "INSERT INTO product_variants (product_id, specs, stock) VALUES (?::uuid, ?::jsonb, ?)")) {
+                    for (ProductVariant v : variants) {
+                        int st = Math.max(0, v.getStock());
+                        total += st;
+                        ps.setObject(1, productId);
+                        ps.setString(2, v.getSpecsJson());
+                        ps.setInt(3, st);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+            }
+
+            try (PreparedStatement ps = c.prepareStatement(
+                    "UPDATE products SET stock = ?, updated_at = now() WHERE id = ?::uuid")) {
+                ps.setInt(1, total);
+                ps.setObject(2, productId);
+                ps.executeUpdate();
+            }
+
+            if (total != before) {
+                try (PreparedStatement ps = c.prepareStatement(
+                        "INSERT INTO inventory_log (product_id, product_name, change, stock_before, stock_after, reason) " +
+                        "VALUES (?::uuid, ?, ?, ?, ?, ?)")) {
+                    ps.setObject(1, productId);
+                    ps.setString(2, name);
+                    ps.setInt(3, total - before);
+                    ps.setInt(4, before);
+                    ps.setInt(5, total);
+                    ps.setString(6, "variant edit (ERP)");
+                    ps.executeUpdate();
+                }
+            }
+
+            c.commit();
+        } catch (SQLException e) {
+            c.rollback();
+            throw e;
+        } finally {
+            c.setAutoCommit(oldAuto);
+            c.close();
+        }
     }
 
     /** Hard-delete a product by id. */
@@ -142,6 +249,7 @@ public class ProductDao {
         p.setPrice(rs.getBigDecimal("price"));
         p.setStock(rs.getInt("stock"));
         p.setActive(rs.getBoolean("active"));
+        p.setVariantCount(rs.getInt("variant_count"));
         return p;
     }
 
