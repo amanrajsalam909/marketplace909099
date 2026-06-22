@@ -475,6 +475,7 @@
             </div>
             <div><label for="sDeliveryFee">Delivery fee (₹)</label><input id="sDeliveryFee" type="number" min="0" max="500" step="1"></div>
             <div><label for="sMinOrder">Minimum order (₹, 0 = none)</label><input id="sMinOrder" type="number" min="0" step="1"></div>
+            <div><label for="sDeliveryEta">Delivery time (minutes)</label><input id="sDeliveryEta" type="number" min="5" max="1440" step="5" placeholder="e.g. 45"></div>
             <div class="full" style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border-radius:8px">
               <input type="checkbox" id="sCod" style="width:18px;height:18px">
               <label for="sCod" style="margin:0;text-transform:none;font-size:14px;color:var(--dark)">Accept Cash on Delivery</label>
@@ -1438,6 +1439,7 @@
         document.querySelectorAll('#sDays input').forEach(cb => cb.checked = days.includes(cb.value));
         document.getElementById('sDeliveryFee').value = s.delivery_fee ?? 30;
         document.getElementById('sMinOrder').value = s.min_order ?? 0;
+        document.getElementById('sDeliveryEta').value = s.delivery_eta_mins ?? 45;
         document.getElementById('sCod').checked = s.accepts_cod !== false;
         document.getElementById('sUpi').value = s.upi_id || '';
         document.getElementById('sPhone').value = s.phone || '';
@@ -1468,6 +1470,7 @@
               open_days: days.join(','),
               delivery_fee: document.getElementById('sDeliveryFee').value,
               min_order: document.getElementById('sMinOrder').value,
+              delivery_eta_mins: parseInt(document.getElementById('sDeliveryEta').value, 10),
               accepts_cod: document.getElementById('sCod').checked,
               upi_id: document.getElementById('sUpi').value,
               phone: document.getElementById('sPhone').value,

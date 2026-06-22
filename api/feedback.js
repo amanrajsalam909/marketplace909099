@@ -134,6 +134,28 @@ module.exports = async (req, res) => {
         return res.json(map);
       }
 
+      // Public: bulk per-SHOP rating summary for the home shop list.
+      // ?shopRatings=1  ->  { [vendorId]: { avg, count } }
+      // Scoped to product reviews (product_id set), mirroring the per-shop ★.
+      if (req.query.shopRatings) {
+        const { data } = await supabase
+          .from('reviews')
+          .select('vendor_id, rating')
+          .not('product_id', 'is', null)
+          .eq('approved', true);
+        const agg = {};
+        for (const r of (data || [])) {
+          if (!r.vendor_id) continue;
+          const a = agg[r.vendor_id] || (agg[r.vendor_id] = { sum: 0, count: 0 });
+          a.sum += r.rating; a.count += 1;
+        }
+        const map = {};
+        for (const [vid, a] of Object.entries(agg)) {
+          map[vid] = { avg: Math.round(a.sum / a.count * 10) / 10, count: a.count };
+        }
+        return res.json(map);
+      }
+
       // Logged-in customer: their own complaints (status + resolution)
       if (req.query.myComplaints) {
         const cs = await validateCustomerSession(getToken(req));

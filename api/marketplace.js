@@ -31,7 +31,7 @@ module.exports = async (req, res) => {
         // off the wire entirely.
         const { data, error } = await supabase
           .from('vendors')
-          .select('id, name, slug, description, logo_url, banner_url, address, phone, is_active, category_id, delivery_fee, min_order, accepts_cod, upi_id, is_open, categories(name, icon), policies:compliance->policies')
+          .select('id, name, slug, description, logo_url, banner_url, address, phone, is_active, category_id, delivery_fee, delivery_eta_mins, min_order, accepts_cod, upi_id, is_open, categories(name, icon), policies:compliance->policies')
           .eq('is_active', true)
           .order('name');
 

@@ -29,7 +29,7 @@ module.exports = async (req, res) => {
 
       const { data, error } = await supabase
         .from('vendors')
-        .select('name, phone, address, description, is_open, open_time, close_time, open_days, delivery_fee, min_order, accepts_cod, upi_id, commission_percent')
+        .select('name, phone, address, description, is_open, open_time, close_time, open_days, delivery_fee, delivery_eta_mins, min_order, accepts_cod, upi_id, commission_percent')
         .eq('id', session.vendor_id)
         .single();
       if (error) throw error;
@@ -123,6 +123,11 @@ module.exports = async (req, res) => {
         const v = Number(f.min_order);
         if (!Number.isFinite(v) || v < 0 || v > 100000) return res.status(400).json({ error: 'Minimum order must be a valid amount.' });
         updates.min_order = Math.round(v * 100) / 100;
+      }
+      if ('delivery_eta_mins' in f) {
+        const v = Number(f.delivery_eta_mins);
+        if (!Number.isInteger(v) || v < 5 || v > 1440) return res.status(400).json({ error: 'Delivery time must be between 5 and 1440 minutes.' });
+        updates.delivery_eta_mins = v;
       }
       if ('upi_id' in f) {
         const v = String(f.upi_id || '').trim();

@@ -139,6 +139,37 @@
       justify-content: space-between;
       margin-bottom: 18px;
     }
+    .sort-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 2px 2px 16px;
+    }
+    .sort-label {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--muted);
+    }
+    .sort-chip {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--dark);
+      border-radius: 999px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .sort-chip:hover { border-color: var(--primary); }
+    .sort-chip.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
     .section-title {
       font-size: 20px;
       font-weight: 700;
@@ -509,6 +540,8 @@
       allProducts: [],
       allProductsLoaded: false,
       ratings: {},            // { [productId]: { avg, count } } — per-product star ratings
+      shopRatings: {},        // { [vendorId]: { avg, count } } — per-shop star ratings
+      sortBy: 'relevance',    // shop-list sort: relevance | rating | delivery
       currentVendor: null,
       cart: JSON.parse(localStorage.getItem('cart') || '[]'),
       search: ''
@@ -533,6 +566,27 @@
         const res = await fetch('/api/feedback?productRatings=1' + (vendorId ? '&vendorId=' + encodeURIComponent(vendorId) : ''));
         if (res.ok) Object.assign(state.ratings, await res.json());
       } catch (_) { /* ratings are non-critical */ }
+    }
+    // Fetch per-shop ratings once, for the home-list rating badge + sort.
+    async function loadShopRatings() {
+      try {
+        const res = await fetch('/api/feedback?shopRatings=1');
+        if (res.ok) state.shopRatings = await res.json();
+      } catch (_) { /* ratings are non-critical */ }
+    }
+    // Human-friendly delivery ETA ("45 min" / "1 hr 15 min").
+    function etaLabel(mins) {
+      const m = Number(mins);
+      if (!Number.isFinite(m) || m <= 0) return '';
+      if (m < 60) return m + ' min';
+      const h = Math.floor(m / 60), r = m % 60;
+      return r ? `${h} hr ${r} min` : `${h} hr`;
+    }
+    // Shop-card star badge (nothing until the shop has product reviews).
+    function shopRatingBadge(vendorId) {
+      const r = state.shopRatings[vendorId];
+      if (!r || !r.count) return '';
+      return `<span style="color:#f59e0b;font-weight:700">★ ${r.avg}</span> <span style="color:var(--muted)">(${r.count})</span>`;
     }
 
     const BANNERS = [
@@ -577,6 +631,8 @@
         state.offers = oRes.ok ? await oRes.json() : [];
         renderCategoryMenu();
         renderVendors();
+        // Ratings arrive a beat later; re-render the list once they're in.
+        loadShopRatings().then(() => { if (!state.currentVendor) renderVendors(); });
       } catch (e) {
         content.innerHTML = '<div class="state">Could not load shops. Please refresh the page.</div>';
       }
@@ -608,6 +664,16 @@
             ? filled.map(c => item(c.id, esc(c.icon || '🛍️'), c.name)).join('')
             : '<div class="state" style="padding:24px 14px">No shops live yet — check back soon!</div>');
     }
+
+    // Shop-list sort chips (delegated — content is re-rendered).
+    content.addEventListener('click', e => {
+      const chip = e.target.closest('[data-sort]');
+      if (!chip) return;
+      if (state.sortBy !== chip.dataset.sort) {
+        state.sortBy = chip.dataset.sort;
+        renderVendors();
+      }
+    });
 
     document.getElementById('catMenuList').addEventListener('click', e => {
       const choice = e.target.closest('[data-cat]');
@@ -655,9 +721,30 @@
 
       const head = txt => `<div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:8px 2px 12px">${txt}</div>`;
 
+      // ---- Sort the shop list ----
+      const rate = id => state.shopRatings[id] || { avg: 0, count: 0 };
+      const eta  = v  => Number.isFinite(Number(v.delivery_eta_mins)) ? Number(v.delivery_eta_mins) : 45;
+      if (state.sortBy === 'rating') {
+        list.sort((a, b) => rate(b.id).avg - rate(a.id).avg || rate(b.id).count - rate(a.id).count || a.name.localeCompare(b.name));
+      } else if (state.sortBy === 'delivery') {
+        list.sort((a, b) => eta(a) - eta(b) || a.name.localeCompare(b.name));
+      }
+      // 'relevance' keeps the API order (no sort).
+
+      const SORTS = [['relevance', 'Relevance'], ['rating', 'Rating'], ['delivery', 'Delivery time']];
+      const sortBar = list.length
+        ? `<div class="sort-bar">
+             <span class="sort-label">Sort</span>
+             ${SORTS.map(([k, lbl]) =>
+               `<button class="sort-chip ${state.sortBy === k ? 'active' : ''}" data-sort="${k}">${lbl}</button>`).join('')}
+           </div>`
+        : '';
+
       const shopsHtml = list.length
         ? (q ? head('Shops') : '') + '<div class="vendors-grid">' + list.map(v => {
             const offer = offersFor(v.id)[0];
+            const rb = shopRatingBadge(v.id);
+            const et = etaLabel(eta(v));
             return `
         <div class="vendor-card" data-vendor="${v.id}">
           <div class="vendor-banner" style="background:${bannerFor(v.name)}">
@@ -666,6 +753,7 @@
           <div class="vendor-body">
             <div class="vendor-name">${esc(v.name)}</div>
             <div class="vendor-meta">${v.categories ? esc((v.categories.icon || '') + ' ' + v.categories.name) + ' · ' : ''}📍 ${esc(v.address || 'Rajkot')}${v.is_open === false ? ' · <span style="color:#dc2626;font-weight:700">Closed</span>' : ''}</div>
+            <div class="vendor-meta" style="margin-top:3px">${rb ? rb + ' · ' : ''}🚚 ${esc(et)}</div>
             <div class="vendor-desc">${esc(v.description || 'Quality products from a local Rajkot business.')}</div>
             ${offer ? `<div class="offer-tag">🎉 ${esc(offerTag(offer))}</div>` : ''}
           </div>
@@ -694,7 +782,7 @@
           }).join('') + '</div>'
         : '';
 
-      content.innerHTML = shopsHtml + productsHtml;
+      content.innerHTML = sortBar + shopsHtml + productsHtml;
     }
 
     async function openVendor(vendorId) {
