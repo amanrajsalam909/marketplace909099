@@ -141,35 +141,62 @@
     }
     .sort-bar {
       display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
+      justify-content: flex-end;
       margin: 2px 2px 16px;
     }
-    .sort-label {
-      font-size: 12px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      color: var(--muted);
-    }
-    .sort-chip {
+    .sort-dd { position: relative; }
+    .sort-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
       border: 1px solid var(--border);
       background: #fff;
       color: var(--dark);
-      border-radius: 999px;
-      padding: 7px 14px;
-      font-size: 13px;
+      border-radius: 10px;
+      padding: 9px 14px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
-      transition: all .15s;
+      transition: border-color .15s, box-shadow .15s;
     }
-    .sort-chip:hover { border-color: var(--primary); }
-    .sort-chip.active {
-      background: var(--primary);
-      border-color: var(--primary);
-      color: #fff;
+    .sort-btn:hover { border-color: var(--primary); }
+    .sort-btn strong { color: var(--primary); font-weight: 700; }
+    .sort-ico { font-size: 15px; }
+    .sort-caret { font-size: 11px; color: var(--muted); transition: transform .15s; }
+    .sort-dd.open .sort-btn { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+    .sort-dd.open .sort-caret { transform: rotate(180deg); }
+    .sort-menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      min-width: 184px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(15,23,42,.14);
+      padding: 6px;
+      z-index: 30;
     }
+    .sort-dd.open .sort-menu { display: block; }
+    .sort-opt {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      border: none;
+      background: transparent;
+      color: var(--dark);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-weight: 500;
+      text-align: left;
+      cursor: pointer;
+    }
+    .sort-opt:hover { background: var(--bg); }
+    .sort-opt.active { color: var(--primary); font-weight: 700; }
+    .sort-check { color: var(--primary); font-weight: 800; }
     .section-title {
       font-size: 20px;
       font-weight: 700;
@@ -542,6 +569,7 @@
       ratings: {},            // { [productId]: { avg, count } } — per-product star ratings
       shopRatings: {},        // { [vendorId]: { avg, count } } — per-shop star ratings
       sortBy: 'relevance',    // shop-list sort: relevance | rating | delivery
+      sortOpen: false,        // is the Sort dropdown open
       currentVendor: null,
       cart: JSON.parse(localStorage.getItem('cart') || '[]'),
       search: ''
@@ -665,12 +693,26 @@
             : '<div class="state" style="padding:24px 14px">No shops live yet — check back soon!</div>');
     }
 
-    // Shop-list sort chips (delegated — content is re-rendered).
+    // Shop-list Sort dropdown (delegated — content is re-rendered).
     content.addEventListener('click', e => {
-      const chip = e.target.closest('[data-sort]');
-      if (!chip) return;
-      if (state.sortBy !== chip.dataset.sort) {
-        state.sortBy = chip.dataset.sort;
+      // Toggle the menu open/closed.
+      if (e.target.closest('#sortBtn')) {
+        state.sortOpen = !state.sortOpen;
+        renderVendors();
+        return;
+      }
+      // Pick an option.
+      const opt = e.target.closest('.sort-opt[data-sort]');
+      if (opt) {
+        state.sortBy = opt.dataset.sort;
+        state.sortOpen = false;
+        renderVendors();
+      }
+    });
+    // Close the Sort menu when clicking anywhere outside it.
+    document.addEventListener('click', e => {
+      if (state.sortOpen && !e.target.closest('.sort-dd')) {
+        state.sortOpen = false;
         renderVendors();
       }
     });
@@ -732,11 +774,20 @@
       // 'relevance' keeps the API order (no sort).
 
       const SORTS = [['relevance', 'Relevance'], ['rating', 'Rating'], ['delivery', 'Delivery time']];
+      const curLabel = (SORTS.find(([k]) => k === state.sortBy) || SORTS[0])[1];
       const sortBar = list.length
         ? `<div class="sort-bar">
-             <span class="sort-label">Sort</span>
-             ${SORTS.map(([k, lbl]) =>
-               `<button class="sort-chip ${state.sortBy === k ? 'active' : ''}" data-sort="${k}">${lbl}</button>`).join('')}
+             <div class="sort-dd ${state.sortOpen ? 'open' : ''}">
+               <button class="sort-btn" id="sortBtn" aria-haspopup="true" aria-expanded="${state.sortOpen ? 'true' : 'false'}">
+                 <span class="sort-ico">⇅</span> Sort: <strong>${esc(curLabel)}</strong> <span class="sort-caret">▾</span>
+               </button>
+               <div class="sort-menu" role="menu">
+                 ${SORTS.map(([k, lbl]) =>
+                   `<button class="sort-opt ${state.sortBy === k ? 'active' : ''}" data-sort="${k}" role="menuitem">
+                      ${esc(lbl)}${state.sortBy === k ? ' <span class="sort-check">✓</span>' : ''}
+                    </button>`).join('')}
+               </div>
+             </div>
            </div>`
         : '';
 
