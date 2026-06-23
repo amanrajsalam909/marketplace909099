@@ -953,7 +953,9 @@
             `<div class="policy-row"><span class="policy-label">${label}</span><span class="policy-text">${esc(text)}</span></div>`).join('') + '</div>'
         : '';
 
-      const et = state.currentVendor ? etaLabel(eta(state.currentVendor)) : '';
+      const vEta = state.currentVendor && Number.isFinite(Number(state.currentVendor.delivery_eta_mins))
+        ? Number(state.currentVendor.delivery_eta_mins) : 45;
+      const et = state.currentVendor ? etaLabel(vEta) : '';
       content.innerHTML = offersHtml + ratingHtml + policyHtml + '<div class="products-grid">' + list.map(p => {
         const out = typeof p.stock === 'number' && p.stock <= 0;
         const low = !out && typeof p.stock === 'number' && p.stock <= 5;
