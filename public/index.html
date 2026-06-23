@@ -245,10 +245,20 @@
       position: relative;
       overflow: hidden;
     }
-    .vendor-banner-img {
+    /* Blurred fill of the same image — removes empty gaps for any aspect ratio. */
+    .vendor-banner-bg {
       position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: cover;
+      filter: blur(16px) brightness(0.92);
+      transform: scale(1.12);
+    }
+    /* The logo itself: auto-fit the WHOLE image (no cropping). */
+    .vendor-banner-img {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: contain;
+      padding: 8px;
     }
     /* When the shop has a logo, it fills the banner; drop the duplicate badge. */
     .vendor-card.has-logo .vendor-avatar { display: none; }
@@ -809,7 +819,7 @@
             return `
         <div class="vendor-card${v.logo_url ? ' has-logo' : ''}" data-vendor="${v.id}">
           <div class="vendor-banner" style="background:${bannerFor(v.name)}">
-            ${v.logo_url ? `<img class="vendor-banner-img" src="${esc(v.logo_url)}" alt="${esc(v.name)} logo" onerror="this.remove()">` : ''}
+            ${v.logo_url ? `<img class="vendor-banner-bg" src="${esc(v.logo_url)}" alt="" aria-hidden="true" onerror="this.remove()"><img class="vendor-banner-img" src="${esc(v.logo_url)}" alt="${esc(v.name)} logo" onerror="this.remove()">` : ''}
             <div class="vendor-avatar">${esc(v.name[0])}</div>
           </div>
           <div class="vendor-body">
