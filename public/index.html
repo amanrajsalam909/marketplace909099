@@ -402,6 +402,7 @@
       background: #dd1f26; color: #fff; font-size: 11px; font-weight: 800;
       letter-spacing: .3px; padding: 3px 7px; border-radius: 6px;
     }
+    .pc-off.pc-off-green { background: #16a34a; }
     /* Delivery-time pill */
     .pc-eta {
       display: inline-flex; align-items: center; gap: 3px; align-self: flex-start;
@@ -966,13 +967,16 @@
         const disc = mrp > Number(p.price);
         const pct = disc ? Math.round((1 - p.price / mrp) * 100) : 0;
         const pOffer = vendorOffers.find(o => o.product_id && String(o.product_id) === String(p.id));
-        const offPct = pOffer && pOffer.discount_type === 'percent' ? Math.round(pOffer.discount_value) : 0;
-        const badgePct = offPct || pct;   // an item-offer % takes priority over the MRP %
+        const offerLabel = pOffer
+          ? (pOffer.discount_type === 'percent' ? Math.round(pOffer.discount_value) + '% OFF' : inr(pOffer.discount_value) + ' OFF')
+          : '';
         const qty = cartQty(p.id);
         return `
         <div class="product-card" data-prod="${p.id}" style="cursor:pointer;${out ? 'opacity:0.6' : ''}">
           <div class="product-image">
-            ${badgePct > 0 ? `<span class="pc-off">${badgePct}% OFF</span>` : ''}
+            ${pOffer
+              ? `<span class="pc-off pc-off-green">🎉 ${esc(offerLabel)}</span>`
+              : (disc ? `<span class="pc-off">${pct}% OFF</span>` : '')}
             ${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">` : '🛍️'}
           </div>
           <div class="product-body">

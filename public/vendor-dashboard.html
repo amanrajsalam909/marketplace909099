@@ -1336,8 +1336,10 @@
               max_discount: document.getElementById('ofCap').value || null,
               min_order: document.getElementById('ofMin').value,
               max_uses: document.getElementById('ofUses').value || null,
-              valid_from: document.getElementById('ofFrom').value,
-              valid_to: document.getElementById('ofTo').value
+              // Convert the local (IST) datetime-local value to a proper UTC ISO
+              // here in the browser — the server would otherwise read it as UTC.
+              valid_from: new Date(document.getElementById('ofFrom').value).toISOString(),
+              valid_to: new Date(document.getElementById('ofTo').value).toISOString()
             }
           })
         });
