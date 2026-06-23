@@ -45,7 +45,8 @@
           'This places a free <b>internet voice call</b> directly between you and the other person — ' +
           'your phone number stays private and is never shared. To connect it, we use your ' +
           '<b>microphone</b> and the network details needed to set up the call. The call is ' +
-          '<b>not recorded</b>.<br><br>By continuing you agree to this, as described in our Privacy Policy.' +
+          '<b>not recorded</b>.<br><br>By continuing you agree to this, as described in our ' +
+          '<a href="/privacy.html" target="_blank" rel="noopener" style="color:#059669;font-weight:700">Privacy Policy</a>.' +
         '</div>' +
         '<div id="rmcall-consent-actions" style="display:flex;gap:8px;margin-top:18px"></div>';
       ov.appendChild(card);
