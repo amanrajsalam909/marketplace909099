@@ -259,6 +259,7 @@ module.exports = async (req, res) => {
             phone: vendor.phone || '',
             address: vendor.address || '',
             description: vendor.description || '',
+            logo_url: cleanImageUrl(vendor.logo_url),
             category_id: vendor.category_id || null,
             commission_percent: Number(vendor.commission_percent) || 14,
             is_active: true
@@ -292,6 +293,10 @@ module.exports = async (req, res) => {
         const allowed = {};
         for (const k of ['name', 'phone', 'address', 'description', 'category_id', 'commission_percent', 'is_active']) {
           if (k in fields) allowed[k] = fields[k];
+        }
+        if ('logo_url' in fields) {
+          if (fields.logo_url && !isHttpUrl(fields.logo_url)) return res.status(400).json({ error: 'Logo must be a valid http(s) image URL.' });
+          allowed.logo_url = cleanImageUrl(fields.logo_url);
         }
         allowed.updated_at = new Date().toISOString();
 
@@ -569,6 +574,16 @@ const KYC_DOC_KEYS = ['gstin', 'pan', 'aadhaar', 'ownership', 'udyam', 'items_li
 const KYC_STATUSES = ['Pending', 'Submitted', 'Verified', 'Rejected', 'N/A'];
 const AGREEMENT_STATUSES = ['Draft', 'Active', 'Expired', 'Terminated'];
 const clip = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+
+// Image URL helpers (vendor logo). Empty is allowed (clears the logo).
+function isHttpUrl(v) {
+  try { const u = new URL(String(v)); return u.protocol === 'http:' || u.protocol === 'https:'; }
+  catch { return false; }
+}
+function cleanImageUrl(v) {
+  const s = String(v == null ? '' : v).trim().slice(0, 500);
+  return isHttpUrl(s) ? s : '';
+}
 
 function sanitizeCompliance(a) {
   const ag = a.agreement || {}, bank = a.bank || {}, docs = a.documents || {}, pol = a.policies || {};

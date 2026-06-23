@@ -331,6 +331,7 @@
             <div><label>Commission %</label><input id="vCommission" type="number" min="0" max="50" step="0.5" value="14"></div>
             <div class="full"><label>Address</label><input id="vAddress" type="text"></div>
             <div class="full"><label>Description</label><textarea id="vDesc" rows="2"></textarea></div>
+            <div class="full"><label>Shop logo (image URL)</label><input id="vLogo" type="url" placeholder="https://… link to logo image (optional)"></div>
           </div>
           <button type="submit" class="btn btn-primary" id="vSaveBtn" style="margin-top:14px">Create Vendor</button>
         </form>
@@ -558,6 +559,13 @@
           <div class="full"><label>Category</label><select id="eCategory"><option value="">— None —</option></select></div>
           <div class="full"><label>Address</label><input id="eAddress" type="text"></div>
           <div class="full"><label>Description</label><textarea id="eDesc" rows="2"></textarea></div>
+          <div class="full">
+            <label>Shop logo (image URL)</label>
+            <div style="display:flex;align-items:center;gap:10px">
+              <img id="eLogoPreview" alt="" style="width:46px;height:46px;border-radius:9px;object-fit:cover;border:1px solid var(--border);background:var(--bg);display:none">
+              <input id="eLogo" type="url" placeholder="https://… link to logo image" style="flex:1">
+            </div>
+          </div>
           <div class="full"><label>Reset login password (leave blank to keep)</label><input id="ePassword" type="text" placeholder="new password (min 6 chars)"></div>
         </div>
         <div style="display:flex;gap:10px;margin-top:6px">
@@ -784,6 +792,7 @@
             phone: document.getElementById('vPhone').value,
             address: document.getElementById('vAddress').value,
             description: document.getElementById('vDesc').value,
+            logo_url: document.getElementById('vLogo').value.trim(),
             category_id: document.getElementById('vCategory').value || null,
             commission_percent: document.getElementById('vCommission').value
           },
@@ -829,6 +838,8 @@
         document.getElementById('eCategory').value = v.category_id || '';
         document.getElementById('eAddress').value = v.address || '';
         document.getElementById('eDesc').value = v.description || '';
+        document.getElementById('eLogo').value = v.logo_url || '';
+        eLogoPreview();
         document.getElementById('ePassword').value = '';
         document.getElementById('editModal').classList.add('open');
         return;
@@ -844,6 +855,15 @@
         } catch (err) { toast(err.message); }
       }
     });
+
+    function eLogoPreview() {
+      const url = document.getElementById('eLogo').value.trim();
+      const img = document.getElementById('eLogoPreview');
+      if (/^https?:\/\/.+/i.test(url)) { img.src = url; img.style.display = 'block'; }
+      else { img.removeAttribute('src'); img.style.display = 'none'; }
+    }
+    document.getElementById('eLogo').addEventListener('input', eLogoPreview);
+    document.getElementById('eLogoPreview').addEventListener('error', function () { this.style.display = 'none'; });
 
     function closeModal() { document.getElementById('editModal').classList.remove('open'); }
     document.getElementById('editModal').addEventListener('click', e => {
@@ -864,7 +884,8 @@
             commission_percent: Number(document.getElementById('eCommission').value),
             category_id: document.getElementById('eCategory').value || null,
             address: document.getElementById('eAddress').value,
-            description: document.getElementById('eDesc').value
+            description: document.getElementById('eDesc').value,
+            logo_url: document.getElementById('eLogo').value.trim()
           }
         });
         if (newPass) {

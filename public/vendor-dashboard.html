@@ -484,6 +484,14 @@
             <div><label for="sPhone">Shop phone</label><input id="sPhone" type="tel"></div>
             <div><label for="sAddress">Address</label><input id="sAddress" type="text"></div>
             <div class="full"><label for="sDesc">Shop description</label><textarea id="sDesc" rows="2"></textarea></div>
+            <div class="full">
+              <label for="sLogo">Shop logo (image URL)</label>
+              <input id="sLogo" type="url" placeholder="https://… paste a link to your logo image">
+              <div style="margin-top:8px;display:flex;align-items:center;gap:10px">
+                <img id="sLogoPreview" alt="logo preview" style="width:54px;height:54px;border-radius:10px;object-fit:cover;border:1px solid var(--border);background:var(--bg);display:none">
+                <span style="font-size:12px;color:var(--muted)">Square image works best. Leave blank to show your shop's initial instead.</span>
+              </div>
+            </div>
           </div>
           <div class="form-actions">
             <button type="submit" class="save-btn" id="sSaveBtn">Save Settings</button>
@@ -1427,6 +1435,15 @@
       </label>`).join('');
 
     let settingsLoaded = false;
+    function updateLogoPreview() {
+      const url = document.getElementById('sLogo').value.trim();
+      const img = document.getElementById('sLogoPreview');
+      if (/^https?:\/\/.+/i.test(url)) { img.src = url; img.style.display = 'block'; }
+      else { img.removeAttribute('src'); img.style.display = 'none'; }
+    }
+    document.getElementById('sLogo').addEventListener('input', updateLogoPreview);
+    document.getElementById('sLogoPreview').addEventListener('error', function () { this.style.display = 'none'; });
+
     async function loadSettings() {
       try {
         const res = await fetch('/api/vendor-settings', { headers: { Authorization: 'Bearer ' + token } });
@@ -1445,6 +1462,8 @@
         document.getElementById('sPhone').value = s.phone || '';
         document.getElementById('sAddress').value = s.address || '';
         document.getElementById('sDesc').value = s.description || '';
+        document.getElementById('sLogo').value = s.logo_url || '';
+        updateLogoPreview();
         settingsLoaded = true;
       } catch (e) {
         toast('Could not load settings');
@@ -1475,7 +1494,8 @@
               upi_id: document.getElementById('sUpi').value,
               phone: document.getElementById('sPhone').value,
               address: document.getElementById('sAddress').value,
-              description: document.getElementById('sDesc').value
+              description: document.getElementById('sDesc').value,
+              logo_url: document.getElementById('sLogo').value.trim()
             }
           })
         });

@@ -29,7 +29,7 @@ module.exports = async (req, res) => {
 
       const { data, error } = await supabase
         .from('vendors')
-        .select('name, phone, address, description, is_open, open_time, close_time, open_days, delivery_fee, delivery_eta_mins, min_order, accepts_cod, upi_id, commission_percent')
+        .select('name, phone, address, description, logo_url, is_open, open_time, close_time, open_days, delivery_fee, delivery_eta_mins, min_order, accepts_cod, upi_id, commission_percent')
         .eq('id', session.vendor_id)
         .single();
       if (error) throw error;
@@ -137,6 +137,11 @@ module.exports = async (req, res) => {
       if ('phone' in f) updates.phone = String(f.phone || '').trim();
       if ('address' in f) updates.address = String(f.address || '').trim();
       if ('description' in f) updates.description = String(f.description || '').trim();
+      if ('logo_url' in f) {
+        const v = String(f.logo_url || '').trim().slice(0, 500);
+        if (v && !/^https?:\/\/.+/i.test(v)) return res.status(400).json({ error: 'Logo must be a valid http(s) image URL.' });
+        updates.logo_url = v || null;
+      }
 
       if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nothing to update.' });
       updates.updated_at = new Date().toISOString();
