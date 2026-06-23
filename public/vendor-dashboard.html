@@ -414,10 +414,15 @@
     <section class="panel" id="panel-offers">
       <div class="product-form open" style="display:block">
         <h3>🎉 Create an offer</h3>
-        <p style="font-size:12px;color:var(--muted);margin:-8px 0 12px">The biggest valid offer auto-applies to customer orders from your shop. The discount comes out of your items value (commission is charged on the discounted amount, so the marketplace shares the cost).</p>
+        <p style="font-size:12px;color:var(--muted);margin:-8px 0 12px">Choose <b>whole shop</b> or a <b>specific item</b> under "Applies to". The biggest valid offer auto-applies at checkout — a per-item offer discounts only that product's value, a shop offer discounts the whole order. The discount comes out of your items value (commission is charged on the discounted amount, so the marketplace shares the cost).</p>
         <form id="offerForm">
           <div class="form-grid">
             <div><label for="ofName">Offer name *</label><input id="ofName" type="text" placeholder="e.g. Weekend 10% OFF" required></div>
+            <div class="full"><label for="ofProduct">Applies to</label>
+              <select id="ofProduct" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg)">
+                <option value="">Whole shop (all items)</option>
+              </select>
+            </div>
             <div><label for="ofType">Type *</label>
               <select id="ofType" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg)">
                 <option value="percent">Percent (%)</option>
@@ -1263,7 +1268,18 @@
       return v + (Number(o.min_order) > 0 ? ' · min order ' + inr(o.min_order) : '');
     }
 
+    // Fill the "Applies to" dropdown with this shop's products.
+    async function populateOfferProducts() {
+      if (!allProducts.length) { try { await loadProducts(); } catch (e) {} }
+      const sel = document.getElementById('ofProduct');
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">Whole shop (all items)</option>' +
+        allProducts.map(p => `<option value="${esc(String(p.id))}">${esc(p.name)}</option>`).join('');
+      sel.value = cur;
+    }
+
     async function loadOffers() {
+      populateOfferProducts();
       try {
         const res = await fetch('/api/vendor-settings?offers=1', { headers: { Authorization: 'Bearer ' + token } });
         if (res.status === 401) return authFail();
@@ -1283,7 +1299,7 @@
           <div class="product-row">
             <div class="p-thumb">🎉</div>
             <div class="p-info">
-              <div class="p-name">${esc(o.name)}</div>
+              <div class="p-name">${esc(o.name)}${o.product_id ? ` <span style="font-size:11px;font-weight:600;color:var(--primary)">🏷 ${esc((allProducts.find(p => String(p.id) === String(o.product_id)) || {}).name || 'item')}</span>` : ' <span style="font-size:11px;color:var(--muted)">· whole shop</span>'}</div>
               <div class="p-meta">
                 ${esc(offerLabel(o))} ·
                 until ${new Date(o.valid_to).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} ·
@@ -1314,6 +1330,7 @@
             action: 'create-offer',
             offer: {
               name: document.getElementById('ofName').value,
+              product_id: document.getElementById('ofProduct').value || null,
               discount_type: document.getElementById('ofType').value,
               discount_value: document.getElementById('ofValue').value,
               max_discount: document.getElementById('ofCap').value || null,

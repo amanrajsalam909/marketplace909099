@@ -45,8 +45,20 @@ module.exports = async (req, res) => {
         if (err) return res.status(400).json({ error: err });
         const o = req.body.offer;
 
+        // Optional per-item targeting: the product must belong to this shop.
+        let productId = null;
+        if (o.product_id) {
+          const { data: prod } = await supabase
+            .from('products').select('id, vendor_id').eq('id', o.product_id).maybeSingle();
+          if (!prod || prod.vendor_id !== session.vendor_id) {
+            return res.status(400).json({ error: 'That product is not in your shop.' });
+          }
+          productId = prod.id;
+        }
+
         const { error } = await supabase.from('offers').insert({
           vendor_id: session.vendor_id,
+          product_id: productId,
           name: String(o.name).trim().slice(0, 80),
           description: String(o.description || '').trim().slice(0, 200),
           discount_type: o.discount_type,

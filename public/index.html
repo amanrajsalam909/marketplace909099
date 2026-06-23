@@ -956,6 +956,7 @@
       const vEta = state.currentVendor && Number.isFinite(Number(state.currentVendor.delivery_eta_mins))
         ? Number(state.currentVendor.delivery_eta_mins) : 45;
       const et = state.currentVendor ? etaLabel(vEta) : '';
+      const vendorOffers = state.currentVendor ? offersFor(state.currentVendor.id) : [];
       content.innerHTML = offersHtml + ratingHtml + policyHtml + '<div class="products-grid">' + list.map(p => {
         const out = typeof p.stock === 'number' && p.stock <= 0;
         const low = !out && typeof p.stock === 'number' && p.stock <= 5;
@@ -964,11 +965,14 @@
         const mrp = Number(p.mrp) || 0;
         const disc = mrp > Number(p.price);
         const pct = disc ? Math.round((1 - p.price / mrp) * 100) : 0;
+        const pOffer = vendorOffers.find(o => o.product_id && String(o.product_id) === String(p.id));
+        const offPct = pOffer && pOffer.discount_type === 'percent' ? Math.round(pOffer.discount_value) : 0;
+        const badgePct = offPct || pct;   // an item-offer % takes priority over the MRP %
         const qty = cartQty(p.id);
         return `
         <div class="product-card" data-prod="${p.id}" style="cursor:pointer;${out ? 'opacity:0.6' : ''}">
           <div class="product-image">
-            ${disc ? `<span class="pc-off">${pct}% OFF</span>` : ''}
+            ${badgePct > 0 ? `<span class="pc-off">${badgePct}% OFF</span>` : ''}
             ${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">` : '🛍️'}
           </div>
           <div class="product-body">
@@ -976,6 +980,7 @@
             <div class="product-category">${esc(p.category || 'General')}${p.product_no ? ' · #' + esc(p.product_no) : ''}</div>
             <div class="product-name">${esc(p.name)}</div>
             ${ratingBadge(p.id)}
+            ${pOffer ? `<div class="pc-specs" style="color:#16a34a">🎉 ${esc(pOffer.name)}</div>` : ''}
             ${low ? `<div style="font-size:11px;color:#d97706;font-weight:700;margin-top:3px">Only ${p.stock} left!</div>` : ''}
             ${hasSpecs ? `<div class="pc-specs">${p.specs.map(s => esc(s.label)).join(' · ')} →</div>` : ''}
             <div class="pc-bottom">

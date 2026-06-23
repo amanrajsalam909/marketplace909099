@@ -45,7 +45,7 @@ module.exports = async (req, res) => {
         const now = new Date().toISOString();
         let query = supabase
           .from('offers')
-          .select('id, vendor_id, name, description, discount_type, discount_value, max_discount, min_order, valid_to, max_uses, uses_count')
+          .select('id, vendor_id, product_id, name, description, discount_type, discount_value, max_discount, min_order, valid_to, max_uses, uses_count')
           .eq('active', true)
           .lte('valid_from', now)
           .gte('valid_to', now)
