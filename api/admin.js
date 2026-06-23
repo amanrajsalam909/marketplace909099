@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { findSession, getToken } = require('../lib/sessions');
 const { hashPassword } = require('../lib/password');
 const { sendStatusUpdate } = require('../lib/email');
+const { sanitizePartnerCompliance, isPartnerVerified } = require('../lib/partner-kyc');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -103,10 +104,11 @@ module.exports = async (req, res) => {
       if (action === 'delivery-partners') {
         const { data, error } = await supabase
           .from('delivery_partners')
-          .select('id, name, login_id, phone, active, created_at')
+          .select('id, name, login_id, phone, active, compliance, created_at')
           .order('created_at', { ascending: false });
         if (error) throw error;
-        return res.json(data || []);
+        const rows = (data || []).map(p => ({ ...p, kyc_verified: isPartnerVerified(p.compliance) }));
+        return res.json(rows);
       }
 
       // Products with their return photo-QC flag (admin sets which items need
@@ -171,6 +173,15 @@ module.exports = async (req, res) => {
         const { error } = await supabase.from('delivery_partners').update(upd).eq('id', req.body.partnerId);
         if (error) throw error;
         return res.json({ success: true });
+      }
+      // Save a delivery partner's KYC / verification record (admin-managed).
+      if (action === 'save-delivery-partner-kyc') {
+        if (!req.body.partnerId) return res.status(400).json({ error: 'Missing partner.' });
+        const compliance = sanitizePartnerCompliance(req.body.compliance || {});
+        const { error } = await supabase.from('delivery_partners')
+          .update({ compliance, updated_at: new Date().toISOString() }).eq('id', req.body.partnerId);
+        if (error) throw error;
+        return res.json({ success: true, kyc_verified: isPartnerVerified(compliance) });
       }
 
       // ---------- Cancel an order (admin override) ----------

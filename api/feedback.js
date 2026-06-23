@@ -7,6 +7,7 @@ const { hashPassword, verifyPassword } = require('../lib/password');
 const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
 const cloudinary = require('../lib/cloudinary');
 const { uploadBinaryFile, downloadFile } = require('../lib/drive');
+const { sanitizePartnerCompliance, isPartnerVerified } = require('../lib/partner-kyc');
 const crypto = require('crypto');
 
 const RECEIPT_MAX_BYTES = 4 * 1024 * 1024;   // raw file cap (stays under Vercel's body limit)
@@ -327,9 +328,10 @@ module.exports = async (req, res) => {
       if (req.query.partners) {
         const { data } = await supabase
           .from('return_partners')
-          .select('id, name, login_id, phone, active, created_at')
+          .select('id, name, login_id, phone, active, compliance, created_at')
           .order('created_at', { ascending: false });
-        return res.json(data || []);
+        const rows = (data || []).map(p => ({ ...p, kyc_verified: isPartnerVerified(p.compliance) }));
+        return res.json(rows);
       }
       return res.status(400).json({ error: 'Invalid query' });
     }
@@ -984,6 +986,15 @@ module.exports = async (req, res) => {
         const { error } = await supabase.from('return_partners').update(upd).eq('id', req.body.partnerId);
         if (error) throw error;
         return res.json({ success: true });
+      }
+      // Save a pickup partner's KYC / verification record (admin-managed).
+      if (action === 'save-partner-kyc') {
+        if (!req.body.partnerId) return res.status(400).json({ error: 'Missing partner.' });
+        const compliance = sanitizePartnerCompliance(req.body.compliance || {});
+        const { error } = await supabase.from('return_partners')
+          .update({ compliance, updated_at: new Date().toISOString() }).eq('id', req.body.partnerId);
+        if (error) throw error;
+        return res.json({ success: true, kyc_verified: isPartnerVerified(compliance) });
       }
 
       // Assign an approved return to a partner -> generate the pickup OTP that

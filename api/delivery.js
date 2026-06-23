@@ -4,6 +4,7 @@ const { sendStatusUpdate, sendDeliveryOtp } = require('../lib/email');
 const { newSessionToken, findSession, getToken } = require('../lib/sessions');
 const { verifyPassword, hashPassword } = require('../lib/password');
 const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
+const { isPartnerVerified } = require('../lib/partner-kyc');
 const crypto = require('crypto');
 
 const MAX_OTP_ATTEMPTS = 5;
@@ -71,22 +72,78 @@ module.exports = async (req, res) => {
     // Every other action requires a valid delivery session.
     const partner = await validateDeliverySession(getToken(req));
     if (!partner) return res.status(401).json({ error: 'Session expired — please sign in again.' });
+    const partnerId = partner.delivery_partner_id;
 
-    // Active deliveries: everything currently out for delivery
+    // Load the partner's own record (KYC + active flag) for the allocation gate.
+    const { data: me } = await supabase
+      .from('delivery_partners').select('name, active, compliance').eq('id', partnerId).maybeSingle();
+    if (!me || !me.active) return res.status(403).json({ error: 'Your account is inactive — contact the admin.' });
+    const verified = isPartnerVerified(me.compliance);
+
+    // My KYC / verification status — drives the banner in the delivery app.
+    if (action === 'kyc-status') {
+      return res.json({ verified, compliance: me.compliance || {} });
+    }
+
+    // The order this partner is CURRENTLY delivering (one active order at a time).
     if (action === 'get-orders') {
       const { data } = await supabase
         .from('orders')
-        .select('order_id, customer_name, delivery_address, address_json, total, payment_method, payment_status, created_at, vendors(name)')
+        .select('order_id, customer_name, delivery_address, address_json, total, payment_method, payment_status, created_at, delivery_assigned_at, vendors(name)')
         .eq('status', 'ready')
-        .order('created_at', { ascending: true });
+        .eq('assigned_delivery_partner_id', partnerId)
+        .order('delivery_assigned_at', { ascending: true });
       return res.json(data || []);
+    }
+
+    // The unclaimed pool — ready orders not yet assigned to anyone. Only shown
+    // when this partner is VERIFIED and FREE (no active delivery). Otherwise we
+    // return a reason so the app can explain why allocation is blocked.
+    if (action === 'available-orders') {
+      if (!verified) return res.json({ orders: [], blocked: 'unverified' });
+      const { count: activeCount } = await supabase
+        .from('orders').select('order_id', { count: 'exact', head: true })
+        .eq('status', 'ready').eq('assigned_delivery_partner_id', partnerId);
+      if (activeCount > 0) return res.json({ orders: [], blocked: 'busy' });
+      const { data } = await supabase
+        .from('orders')
+        .select('order_id, customer_name, delivery_address, address_json, total, payment_method, created_at, vendors(name)')
+        .eq('status', 'ready')
+        .is('assigned_delivery_partner_id', null)
+        .order('created_at', { ascending: true });
+      return res.json({ orders: data || [], blocked: null });
+    }
+
+    // Claim an order. Guards: partner verified, partner free, order still ready
+    // and unassigned (atomic conditional update wins the race).
+    if (action === 'accept-order') {
+      if (!verified) return res.status(403).json({ error: 'Your KYC isn\'t verified yet — you can\'t accept deliveries until the admin verifies your documents.' });
+      const { count: activeCount } = await supabase
+        .from('orders').select('order_id', { count: 'exact', head: true })
+        .eq('status', 'ready').eq('assigned_delivery_partner_id', partnerId);
+      if (activeCount > 0) return res.status(409).json({ error: 'Finish your current delivery before accepting a new one.' });
+
+      const { data: claimed } = await supabase
+        .from('orders')
+        .update({ assigned_delivery_partner_id: partnerId, delivery_assigned_at: new Date().toISOString() })
+        .eq('order_id', orderId).eq('status', 'ready').is('assigned_delivery_partner_id', null)
+        .select('order_id');
+      if (!claimed || !claimed.length) {
+        return res.status(409).json({ error: 'That order was just taken by another partner or is no longer available.' });
+      }
+      await supabase.from('order_events').insert({
+        order_id: orderId, actor: 'delivery', event: 'delivery_assigned',
+        note: 'Accepted by ' + (me.name || 'partner')
+      });
+      return res.json({ success: true });
     }
 
     // COD: cash must be collected BEFORE the handover code is accepted
     if (action === 'collect-cash') {
       const { data: ord } = await supabase
-        .from('orders').select('payment_method, payment_status, status').eq('order_id', orderId).single();
+        .from('orders').select('payment_method, payment_status, status, assigned_delivery_partner_id').eq('order_id', orderId).single();
       if (!ord) return res.status(404).json({ error: 'Order not found.' });
+      if (ord.assigned_delivery_partner_id !== partnerId) return res.status(403).json({ error: 'This delivery is assigned to another partner.' });
       if (ord.payment_method !== 'COD') return res.status(400).json({ error: 'Not a COD order.' });
       if (ord.status !== 'ready') return res.status(400).json({ error: 'Order is not out for delivery.' });
       if (ord.payment_status === 'Collected') return res.json({ success: true, already: true });
@@ -106,9 +163,10 @@ module.exports = async (req, res) => {
 
       const { data: ord } = await supabase
         .from('orders')
-        .select('payment_method, payment_status, customer_email')
+        .select('payment_method, payment_status, customer_email, assigned_delivery_partner_id')
         .eq('order_id', orderId).single();
       if (!ord) return res.status(404).json({ error: 'Order not found.' });
+      if (ord.assigned_delivery_partner_id !== partnerId) return res.status(403).json({ error: 'This delivery is assigned to another partner.' });
 
       // The cash-first rule
       if (ord.payment_method === 'COD' && ord.payment_status !== 'Collected') {
@@ -148,10 +206,11 @@ module.exports = async (req, res) => {
 
     if (action === 'resend-otp') {
       const { data: ord } = await supabase
-        .from('orders').select('status, customer_email').eq('order_id', orderId).single();
+        .from('orders').select('status, customer_email, assigned_delivery_partner_id').eq('order_id', orderId).single();
       if (!ord || ord.status !== 'ready') {
         return res.status(400).json({ error: 'Order is not out for delivery.' });
       }
+      if (ord.assigned_delivery_partner_id !== partnerId) return res.status(403).json({ error: 'This delivery is assigned to another partner.' });
       const code = String(crypto.randomInt(100000, 1000000));
       await supabase.from('delivery_otps').upsert({
         order_id: orderId, otp: code, attempts: 0,
@@ -171,6 +230,7 @@ module.exports = async (req, res) => {
         .from('orders')
         .select('order_id, customer_name, delivery_address, address_json, total, payment_method, updated_at, vendors(name)')
         .eq('status', 'delivered')
+        .eq('assigned_delivery_partner_id', partnerId)
         .gte('updated_at', startOfDay.toISOString())
         .order('updated_at', { ascending: false });
 

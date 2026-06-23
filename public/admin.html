@@ -251,6 +251,26 @@
       table.cards td.empty { align-items: center; padding: 16px 0 !important; }
       table.cards td.empty::before { content: none; }
     }
+
+    /* Partner KYC editor */
+    .partner-block { border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; overflow: hidden; }
+    .partner-block > .list-row { margin: 0; border: none; border-radius: 0; }
+    details.kyc { border-top: 1px dashed var(--border); background: #fbfcfe; }
+    details.kyc > summary { cursor: pointer; padding: 10px 14px; font-size: 13px; font-weight: 700; color: var(--dark); list-style: none; }
+    details.kyc > summary::-webkit-details-marker { display: none; }
+    details.kyc > summary::before { content: '▸ '; color: var(--muted); }
+    details.kyc[open] > summary::before { content: '▾ '; }
+    .kyc-body { padding: 4px 14px 16px; }
+    .kyc-sec { font-size: 12px; font-weight: 800; color: var(--dark); text-transform: uppercase; letter-spacing: .4px; margin: 14px 0 8px; }
+    .kyc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    .kyc-doc { border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; margin-bottom: 8px; background: #fff; }
+    .kyc-doc-h { font-size: 12px; font-weight: 700; color: var(--dark); margin-bottom: 8px; }
+    .kyc-f { display: flex; flex-direction: column; }
+    .kyc-f label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 3px; }
+    .kyc-f input, .kyc-f select { padding: 7px 9px; font-size: 13px; border: 1px solid var(--border); border-radius: 7px; font-family: inherit; width: 100%; }
+    .kyc-badge { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; padding: 3px 9px; border-radius: 999px; margin-left: 6px; }
+    .kyc-badge.ok { background: #d1fae5; color: #065f46; }
+    .kyc-badge.no { background: #fef3c7; color: #92400e; }
   </style>
 </head>
 <body>
@@ -1449,23 +1469,102 @@
     };
     let lastPartners = [];
 
+    /* ---------- Shared partner KYC editor (delivery + pickup) ---------- */
+    const KYC_ST = ['Pending', 'Submitted', 'Verified', 'Rejected', 'N/A'];
+    const AGR_ST = ['Pending', 'Active', 'Expired', 'Terminated'];
+    const kIn = (label, k, val, ph) => `<div class="kyc-f"><label>${label}</label><input data-k="${k}" value="${esc(val || '')}" placeholder="${ph || ''}"></div>`;
+    const kSel = (label, k, val, opts) => `<div class="kyc-f"><label>${label}</label><select data-k="${k}">${opts.map(o => `<option ${o === (val || opts[0]) ? 'selected' : ''}>${o}</option>`).join('')}</select></div>`;
+    const kDoc = (label, key, dd) => `<div class="kyc-doc"><div class="kyc-doc-h">${label}</div><div class="kyc-grid">${kIn('Number', `documents.${key}.number`, dd.number)}${kSel('Status', `documents.${key}.status`, dd.status, KYC_ST)}${kIn('Document link (URL)', `documents.${key}.url`, dd.url, 'optional')}${kIn('Note', `documents.${key}.note`, dd.note)}</div></div>`;
+    const kycBadge = v => `<span class="kyc-badge ${v ? 'ok' : 'no'}">${v ? '✓ Verified' : 'KYC pending'}</span>`;
+
+    function kycEditorHtml(p, kind) {
+      const c = p.compliance || {}, ag = c.agreement || {}, mob = c.mobile || {}, bank = c.bank || {}, docs = c.documents || {};
+      return `
+        <details class="kyc">
+          <summary>🪪 KYC / Verification ${kycBadge(p.kyc_verified)}</summary>
+          <div class="kyc-body" data-kyc-root>
+            <div class="kyc-sec">📄 Customer relationship agreement</div>
+            <div class="kyc-grid">
+              ${kSel('Status', 'agreement.status', ag.status, AGR_ST)}
+              ${kIn('Signed on', 'agreement.signed_on', ag.signed_on, 'YYYY-MM-DD')}
+              ${kIn('Notes', 'agreement.notes', ag.notes)}
+            </div>
+            <div class="kyc-sec">📱 Personal mobile number</div>
+            <div class="kyc-grid">
+              ${kIn('Mobile number', 'mobile.number', mob.number)}
+              ${kSel('Status', 'mobile.status', mob.status, KYC_ST)}
+              ${kIn('Note', 'mobile.note', mob.note)}
+            </div>
+            <div class="kyc-sec">🏦 Bank account</div>
+            <div class="kyc-grid">
+              ${kIn('Account holder', 'bank.holder', bank.holder)}
+              ${kIn('Account number', 'bank.account_number', bank.account_number)}
+              ${kIn('IFSC', 'bank.ifsc', bank.ifsc)}
+              ${kIn('Bank name', 'bank.bank_name', bank.bank_name)}
+              ${kSel('Status', 'bank.status', bank.status, KYC_ST)}
+              ${kIn('Note', 'bank.note', bank.note)}
+            </div>
+            <div class="kyc-sec">🪪 Identity &amp; vehicle documents</div>
+            ${kDoc('Aadhaar card', 'aadhaar', docs.aadhaar || {})}
+            ${kDoc('Driving licence', 'license', docs.license || {})}
+            ${kDoc('Vehicle ownership proof', 'vehicle_ownership', docs.vehicle_ownership || {})}
+            ${kDoc('Vehicle RC book', 'vehicle_rc', docs.vehicle_rc || {})}
+            <button class="btn btn-primary btn-sm" data-kyc-save="${p.id}" data-kind="${kind}" style="margin-top:12px">💾 Save verification</button>
+          </div>
+        </details>`;
+    }
+
+    function collectKyc(root) {
+      const out = {};
+      root.querySelectorAll('[data-k]').forEach(inp => {
+        const path = inp.dataset.k.split('.');
+        let o = out;
+        for (let i = 0; i < path.length - 1; i++) o = (o[path[i]] = o[path[i]] || {});
+        o[path[path.length - 1]] = inp.value;
+      });
+      return out;
+    }
+
+    // Save handler shared by both partner lists.
+    async function saveKyc(btn) {
+      const root = btn.closest('[data-kyc-root]');
+      if (!root) return;
+      const compliance = collectKyc(root);
+      const body = { partnerId: btn.dataset.kycSave, compliance };
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        const r = btn.dataset.kind === 'delivery'
+          ? await apiPost({ action: 'save-delivery-partner-kyc', ...body })
+          : await fbPost({ action: 'save-partner-kyc', ...body });
+        toast(r.kyc_verified ? 'Saved — partner is now VERIFIED ✓' : 'Saved — verification still pending');
+        btn.dataset.kind === 'delivery' ? loadDeliveryPartners() : loadPartners();
+      } catch (err) {
+        toast(err.message);
+        btn.disabled = false; btn.textContent = '💾 Save verification';
+      }
+    }
+
     async function loadPartners() {
       try {
         lastPartners = await api(`/api/feedback?partners=1`);
         const el = document.getElementById('partnersList');
         if (!lastPartners.length) { el.innerHTML = '<div class="state">No pickup partners yet — add one above.</div>'; return; }
         el.innerHTML = lastPartners.map(p => `
-          <div class="list-row" style="align-items:center">
-            <div class="row-info">
-              <div class="row-title">${esc(p.name)}
-                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${p.active ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b'}">${p.active ? 'Active' : 'Disabled'}</span>
+          <div class="partner-block">
+            <div class="list-row" style="align-items:center">
+              <div class="row-info">
+                <div class="row-title">${esc(p.name)}
+                  <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${p.active ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b'}">${p.active ? 'Active' : 'Disabled'}</span>
+                  ${kycBadge(p.kyc_verified)}
+                </div>
+                <div class="row-sub">id: <b>${esc(p.login_id)}</b>${p.phone ? ' · 📞 ' + esc(p.phone) : ''}</div>
               </div>
-              <div class="row-sub">id: <b>${esc(p.login_id)}</b>${p.phone ? ' · 📞 ' + esc(p.phone) : ''}</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button class="btn btn-outline btn-sm" data-p-pass="${p.id}">Reset password</button>
+                <button class="btn btn-outline btn-sm" data-p-toggle="${p.id}" data-active="${p.active}">${p.active ? 'Disable' : 'Enable'}</button>
+              </div>
             </div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button class="btn btn-outline btn-sm" data-p-pass="${p.id}">Reset password</button>
-              <button class="btn btn-outline btn-sm" data-p-toggle="${p.id}" data-active="${p.active}">${p.active ? 'Disable' : 'Enable'}</button>
-            </div>
+            ${kycEditorHtml(p, 'pickup')}
           </div>`).join('');
       } catch (e) {
         document.getElementById('partnersList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
@@ -1657,6 +1756,8 @@
     });
 
     document.getElementById('partnersList').addEventListener('click', async e => {
+      const kyc = e.target.closest('[data-kyc-save]');
+      if (kyc) return saveKyc(kyc);
       const pass = e.target.closest('[data-p-pass]');
       const toggle = e.target.closest('[data-p-toggle]');
       try {
@@ -1961,17 +2062,21 @@
         const list = await apiGet('delivery-partners');
         if (!list.length) { el.innerHTML = '<div class="state">No delivery partners yet — add one above.</div>'; return; }
         el.innerHTML = list.map(p => `
-          <div class="list-row" style="align-items:center">
-            <div class="row-info">
-              <div class="row-title">${esc(p.name)}
-                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${p.active ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b'}">${p.active ? 'Active' : 'Disabled'}</span>
+          <div class="partner-block">
+            <div class="list-row" style="align-items:center">
+              <div class="row-info">
+                <div class="row-title">${esc(p.name)}
+                  <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;margin-left:6px;${p.active ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b'}">${p.active ? 'Active' : 'Disabled'}</span>
+                  ${kycBadge(p.kyc_verified)}
+                </div>
+                <div class="row-sub">id: <b>${esc(p.login_id)}</b>${p.phone ? ' · 📞 ' + esc(p.phone) : ''}</div>
               </div>
-              <div class="row-sub">id: <b>${esc(p.login_id)}</b>${p.phone ? ' · 📞 ' + esc(p.phone) : ''}</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button class="btn btn-outline btn-sm" data-dp-pass="${p.id}">Reset password</button>
+                <button class="btn btn-outline btn-sm" data-dp-toggle="${p.id}" data-active="${p.active}">${p.active ? 'Disable' : 'Enable'}</button>
+              </div>
             </div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button class="btn btn-outline btn-sm" data-dp-pass="${p.id}">Reset password</button>
-              <button class="btn btn-outline btn-sm" data-dp-toggle="${p.id}" data-active="${p.active}">${p.active ? 'Disable' : 'Enable'}</button>
-            </div>
+            ${kycEditorHtml(p, 'delivery')}
           </div>`).join('');
       } catch (e) {
         el.innerHTML = `<div class="state">${esc(e.message)}</div>`;
@@ -1991,6 +2096,8 @@
       } catch (err) { toast(err.message); }
     });
     document.getElementById('deliveryPartnersList').addEventListener('click', async e => {
+      const kyc = e.target.closest('[data-kyc-save]');
+      if (kyc) return saveKyc(kyc);
       const pass = e.target.closest('[data-dp-pass]');
       const toggle = e.target.closest('[data-dp-toggle]');
       try {

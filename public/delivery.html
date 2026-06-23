@@ -121,6 +121,12 @@
 
     .state { text-align: center; padding: 44px 16px; color: var(--muted); font-size: 14px; }
 
+    .kyc-banner {
+      background: #fef3c7; border: 1px solid #fde68a; color: #92400e;
+      border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.5; margin-bottom: 14px;
+    }
+    .btn-accept { background: var(--green); color: #fff; }
+
     .toast {
       position: fixed; bottom: 20px; left: 50%;
       transform: translateX(-50%) translateY(80px);
@@ -158,11 +164,14 @@
       </div>
     </div>
     <div class="container">
+      <div id="kycBanner" class="kyc-banner" style="display:none"></div>
       <div class="seg">
-        <button class="active" id="segActive" onclick="showSeg('active')">🛵 To Deliver</button>
-        <button id="segDone" onclick="showSeg('done')">✅ Completed Today</button>
+        <button class="active" id="segActive" onclick="showSeg('active')">🛵 My Delivery</button>
+        <button id="segAvail" onclick="showSeg('avail')">📦 Available</button>
+        <button id="segDone" onclick="showSeg('done')">✅ Done Today</button>
       </div>
       <div id="activeList"><div class="state">Loading…</div></div>
+      <div id="availList" style="display:none"><div class="state">Loading…</div></div>
       <div id="doneList" style="display:none"><div class="state">Loading…</div></div>
     </div>
   </div>
@@ -228,6 +237,7 @@
         sessionStorage.setItem('deliveryToken', TOKEN);
         document.getElementById('pinScreen').style.display = 'none';
         document.getElementById('app').style.display = 'block';
+        loadKyc();
         loadActive();
       } catch (e) {
         const err = document.getElementById('pinErr');
@@ -249,10 +259,25 @@
     /* ---- Segments ---- */
     function showSeg(which) {
       document.getElementById('segActive').classList.toggle('active', which === 'active');
+      document.getElementById('segAvail').classList.toggle('active', which === 'avail');
       document.getElementById('segDone').classList.toggle('active', which === 'done');
       document.getElementById('activeList').style.display = which === 'active' ? 'block' : 'none';
+      document.getElementById('availList').style.display = which === 'avail' ? 'block' : 'none';
       document.getElementById('doneList').style.display = which === 'done' ? 'block' : 'none';
-      which === 'active' ? loadActive() : loadDone();
+      if (which === 'active') loadActive();
+      else if (which === 'avail') loadAvailable();
+      else loadDone();
+    }
+
+    /* ---- KYC banner (verification gate) ---- */
+    async function loadKyc() {
+      try {
+        const k = await api('kyc-status');
+        const b = document.getElementById('kycBanner');
+        if (k.verified) { b.style.display = 'none'; return; }
+        b.style.display = 'block';
+        b.innerHTML = '⛔ <b>Verification pending.</b> The admin must verify your KYC (Aadhaar, driving licence, vehicle ownership &amp; RC, bank account, mobile number and the customer relationship agreement) before you can accept new deliveries.';
+      } catch (e) { /* ignore */ }
     }
 
     /* ---- Active deliveries ---- */
@@ -261,7 +286,7 @@
         const orders = await api('get-orders');
         const el = document.getElementById('activeList');
         if (!orders.length) {
-          el.innerHTML = '<div class="state">No orders out for delivery right now. 🎉</div>';
+          el.innerHTML = '<div class="state">No active delivery. Open <b>📦 Available</b> to accept one.</div>';
           return;
         }
         el.innerHTML = orders.map(o => {
@@ -336,6 +361,61 @@
       }
     });
 
+    /* ---- Available pool (claim one at a time) ---- */
+    async function loadAvailable() {
+      try {
+        const r = await api('available-orders');
+        const el = document.getElementById('availList');
+        const orders = r.orders || [];
+        if (r.blocked === 'unverified') {
+          el.innerHTML = '<div class="state">⛔ Your KYC isn\'t verified yet.<br>The admin must verify your documents before you can accept deliveries.</div>';
+          return;
+        }
+        if (r.blocked === 'busy') {
+          el.innerHTML = '<div class="state">You already have an active delivery.<br>Finish it before accepting another.</div>';
+          return;
+        }
+        if (!orders.length) {
+          el.innerHTML = '<div class="state">No orders waiting to be picked up right now. 🎉</div>';
+          return;
+        }
+        el.innerHTML = orders.map(o => `
+          <div class="dcard">
+            <div class="dtop">
+              <div>
+                <div class="oid">${esc(o.order_id)}</div>
+                <div class="shop">🏪 ${esc((o.vendors || {}).name || 'Shop')}</div>
+                ${o.payment_method === 'COD' ? `<span class="codtag">💵 COD ${inr(o.total)}</span>` : '<span class="paidtag">📲 PAID ONLINE</span>'}
+              </div>
+              <div class="amount">${inr(o.total)}</div>
+            </div>
+            <div class="addr">
+              <b>${esc(o.customer_name)}</b>
+              <div style="margin-top:6px">${addrHtml(o)}</div>
+            </div>
+            <div class="actions">
+              <button class="btn btn-accept" data-accept="${esc(o.order_id)}">✅ Accept delivery</button>
+            </div>
+          </div>`).join('');
+      } catch (e) {
+        document.getElementById('availList').innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    document.getElementById('availList').addEventListener('click', async e => {
+      const acc = e.target.closest('[data-accept]');
+      if (!acc) return;
+      acc.disabled = true; acc.textContent = 'Accepting…';
+      try {
+        await api('accept-order', { orderId: acc.dataset.accept });
+        toast('Delivery accepted — it\'s yours now.');
+        showSeg('active');
+      } catch (err) {
+        toast(err.message);
+        loadAvailable();
+      }
+    });
+
     /* ---- Completed today ---- */
     async function loadDone() {
       try {
@@ -370,11 +450,14 @@
       api('get-orders').then(() => {
         document.getElementById('pinScreen').style.display = 'none';
         document.getElementById('app').style.display = 'block';
+        loadKyc();
         loadActive();
       }).catch(() => lock());
     }
     setInterval(() => {
-      if (TOKEN && document.getElementById('activeList').style.display !== 'none') loadActive();
+      if (!TOKEN) return;
+      if (document.getElementById('activeList').style.display !== 'none') loadActive();
+      else if (document.getElementById('availList').style.display !== 'none') loadAvailable();
     }, 30000);
   </script>
 </body>
