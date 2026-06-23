@@ -22,6 +22,41 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
+  /* ---------- One-time consent (DPDP Act 2023) ----------
+   * The call connects the two parties over the internet and processes the mic
+   * audio + connection data needed to place the call. We ask once, then remember
+   * the choice locally so we don't nag on every call. */
+  var CONSENT_KEY = 'rmcall_consent_v1';
+  function hasConsent() { try { return localStorage.getItem(CONSENT_KEY) === 'yes'; } catch (e) { return false; } }
+  function rememberConsent() { try { localStorage.setItem(CONSENT_KEY, 'yes'); } catch (e) {} }
+
+  function askConsent() {
+    return new Promise(function (resolve) {
+      if (hasConsent()) { resolve(true); return; }
+      var ov = document.createElement('div');
+      ov.id = 'rmcall-consent';
+      ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.6);display:flex;align-items:center;justify-content:center;padding:16px;font-family:Inter,system-ui,sans-serif';
+      var card = document.createElement('div');
+      card.style.cssText = 'background:#fff;color:#0f172a;border-radius:16px;max-width:380px;width:100%;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.35)';
+      card.innerHTML =
+        '<div style="font-size:30px;line-height:1;margin-bottom:10px">🔒📞</div>' +
+        '<div style="font-size:16px;font-weight:800;margin-bottom:8px">Before we connect your call</div>' +
+        '<div style="font-size:13px;line-height:1.55;color:#475569">' +
+          'This places a free <b>internet voice call</b> directly between you and the other person — ' +
+          'your phone number stays private and is never shared. To connect it, we use your ' +
+          '<b>microphone</b> and the network details needed to set up the call. The call is ' +
+          '<b>not recorded</b>.<br><br>By continuing you agree to this, as described in our Privacy Policy.' +
+        '</div>' +
+        '<div id="rmcall-consent-actions" style="display:flex;gap:8px;margin-top:18px"></div>';
+      ov.appendChild(card);
+      function done(ok) { try { ov.remove(); } catch (e) {} resolve(ok); }
+      var actions = card.querySelector('#rmcall-consent-actions');
+      actions.appendChild(btn('Not now', '#64748b', function () { done(false); }));
+      actions.appendChild(btn('Agree & continue', '#059669', function () { rememberConsent(); done(true); }));
+      document.body.appendChild(ov);
+    });
+  }
+
   /* ---------- Minimal overlay UI ---------- */
   function ui() {
     if (document.getElementById('rmcall-ui')) return document.getElementById('rmcall-ui');
@@ -64,6 +99,10 @@
   }
 
   async function begin(room, signal, label, isCaller) {
+    if (active) return;
+    // DPDP consent gate — asked once, then remembered (resolves instantly after).
+    var ok = await askConsent();
+    if (!ok) { if (!isCaller) { try { signal('call-signal', { room: room, kind: 'bye' }); } catch (e) {} } hideUI(); return; }
     if (active) return;
     var st = { room: room, signal: signal, isCaller: isCaller, since: 0, ended: false, pc: null, stream: null, muted: false };
     active = st;
