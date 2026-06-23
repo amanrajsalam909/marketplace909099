@@ -242,7 +242,17 @@
       display: flex;
       align-items: flex-end;
       padding: 12px;
+      position: relative;
+      overflow: hidden;
     }
+    .vendor-banner-img {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    /* When the shop has a logo, it fills the banner; drop the duplicate badge. */
+    .vendor-card.has-logo .vendor-avatar { display: none; }
+    .vendor-card.has-logo .vendor-body { padding-top: 16px; }
     .vendor-avatar {
       width: 52px;
       height: 52px;
@@ -797,9 +807,10 @@
             const rb = shopRatingBadge(v.id);
             const et = etaLabel(eta(v));
             return `
-        <div class="vendor-card" data-vendor="${v.id}">
+        <div class="vendor-card${v.logo_url ? ' has-logo' : ''}" data-vendor="${v.id}">
           <div class="vendor-banner" style="background:${bannerFor(v.name)}">
-            <div class="vendor-avatar">${v.logo_url ? `<img src="${esc(v.logo_url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:9px">` : esc(v.name[0])}</div>
+            ${v.logo_url ? `<img class="vendor-banner-img" src="${esc(v.logo_url)}" alt="${esc(v.name)} logo" onerror="this.remove()">` : ''}
+            <div class="vendor-avatar">${esc(v.name[0])}</div>
           </div>
           <div class="vendor-body">
             <div class="vendor-name">${esc(v.name)}</div>
