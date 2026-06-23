@@ -26,7 +26,7 @@
    * The call connects the two parties over the internet and processes the mic
    * audio + connection data needed to place the call. We ask once, then remember
    * the choice locally so we don't nag on every call. */
-  var CONSENT_KEY = 'rmcall_consent_v1';
+  var CONSENT_KEY = 'rmcall_consent_v2';  // v2 = recording disclosed; v1 consenters must re-agree
   function hasConsent() { try { return localStorage.getItem(CONSENT_KEY) === 'yes'; } catch (e) { return false; } }
   function rememberConsent() { try { localStorage.setItem(CONSENT_KEY, 'yes'); } catch (e) {} }
 
@@ -39,13 +39,14 @@
       var card = document.createElement('div');
       card.style.cssText = 'background:#fff;color:#0f172a;border-radius:16px;max-width:380px;width:100%;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.35)';
       card.innerHTML =
-        '<div style="font-size:30px;line-height:1;margin-bottom:10px">🔒📞</div>' +
-        '<div style="font-size:16px;font-weight:800;margin-bottom:8px">Before we connect your call</div>' +
+        '<div style="font-size:30px;line-height:1;margin-bottom:10px">🔴📞</div>' +
+        '<div style="font-size:16px;font-weight:800;margin-bottom:8px">This call will be recorded</div>' +
         '<div style="font-size:13px;line-height:1.55;color:#475569">' +
           'This places a free <b>internet voice call</b> directly between you and the other person — ' +
           'your phone number stays private and is never shared. To connect it, we use your ' +
-          '<b>microphone</b> and the network details needed to set up the call. The call is ' +
-          '<b>not recorded</b>.<br><br>By continuing you agree to this, as described in our ' +
+          '<b>microphone</b> and the network details needed to set up the call. ' +
+          'For safety and security, <b>this call will be recorded</b> and kept for up to 1 year.' +
+          '<br><br>By continuing you consent to being recorded, as described in our ' +
           '<a href="/privacy.html" target="_blank" rel="noopener" style="color:#059669;font-weight:700">Privacy Policy</a>.' +
         '</div>' +
         '<div id="rmcall-consent-actions" style="display:flex;gap:8px;margin-top:18px"></div>';
@@ -89,11 +90,64 @@
   function setActions(nodes) { var a = document.getElementById('rmcall-actions'); if (!a) return; a.innerHTML = ''; nodes.forEach(function (n) { a.appendChild(n); }); }
   function hideUI() { var u = document.getElementById('rmcall-ui'); if (u) u.style.display = 'none'; }
 
+  /* ---------- Recording (security) ----------
+   * The CALLER records the call: local mic + remote audio are mixed via an
+   * AudioContext and captured with MediaRecorder. At hang-up the blob is
+   * base64-uploaded to /api/feedback (call-recording → Google Drive, 1-year
+   * retention). Both parties consented to recording at the consent gate. Low
+   * bitrate keeps the upload under the request-body limit (~18 min ceiling).
+   * Recording is best-effort: if it's unsupported, the call still proceeds. */
+  var MAX_REC_MS = 18 * 60 * 1000;
+  function startRecording(st) {
+    if (st.rec || !st.isCaller || typeof MediaRecorder === 'undefined') return;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      var ctx = new AC();
+      var dest = ctx.createMediaStreamDestination();
+      if (st.stream) ctx.createMediaStreamSource(st.stream).connect(dest);
+      if (st.remoteStream) ctx.createMediaStreamSource(st.remoteStream).connect(dest);
+      var mime = '';
+      ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'].some(function (m) {
+        if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) { mime = m; return true; } return false;
+      });
+      var opts = { audioBitsPerSecond: 24000 };
+      if (mime) opts.mimeType = mime;
+      var rec = new MediaRecorder(dest.stream, opts);
+      var chunks = [];
+      rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = function () {
+        try { ctx.close(); } catch (e) {}
+        uploadRecording(st, new Blob(chunks, { type: (mime || 'audio/webm').split(';')[0] }));
+      };
+      rec.start();
+      st.rec = rec;
+      st.recStart = Date.now();
+      st.recCap = setTimeout(function () { try { if (rec.state !== 'inactive') rec.stop(); } catch (e) {} }, MAX_REC_MS);
+    } catch (e) { /* recording unsupported — call continues unrecorded */ }
+  }
+  function stopRecording(st) {
+    if (st.recCap) { clearTimeout(st.recCap); st.recCap = null; }
+    if (st.rec && st.rec.state !== 'inactive') { try { st.rec.stop(); } catch (e) {} }
+  }
+  function uploadRecording(st, blob) {
+    if (!blob || !blob.size) return;
+    var dur = st.recStart ? Math.round((Date.now() - st.recStart) / 1000) : 0;
+    var reader = new FileReader();
+    reader.onloadend = function () {
+      var b64 = String(reader.result || '').split(',')[1] || '';
+      if (!b64) return;
+      try { st.signal('call-recording', { room: st.room, audio: b64, mime: (blob.type || 'audio/webm'), duration: dur }); } catch (e) {}
+    };
+    reader.readAsDataURL(blob);
+  }
+
   /* ---------- Core call ---------- */
   function teardown(sendBye) {
     if (!active) return;
     var a = active; active = null;
     a.ended = true;
+    stopRecording(a);  // flushes + uploads the recording (onstop)
     if (sendBye) { try { a.signal('call-signal', { room: a.room, kind: 'bye' }); } catch (e) {} }
     try { a.pc && a.pc.close(); } catch (e) {}
     try { a.stream && a.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
@@ -132,10 +186,10 @@
     st.pc = new RTCPeerConnection(iceCfg);
     st.stream.getTracks().forEach(function (t) { st.pc.addTrack(t, st.stream); });
     st.pc.onicecandidate = function (e) { if (e.candidate) st.signal('call-signal', { room: room, kind: 'ice', payload: e.candidate }); };
-    st.pc.ontrack = function (e) { var au = document.getElementById('rmcall-audio'); if (au) au.srcObject = e.streams[0]; };
+    st.pc.ontrack = function (e) { st.remoteStream = e.streams[0]; var au = document.getElementById('rmcall-audio'); if (au) au.srcObject = e.streams[0]; };
     st.pc.onconnectionstatechange = function () {
       var cs = st.pc.connectionState;
-      if (cs === 'connected') { setState('Connected'); liveActions(st); }
+      if (cs === 'connected') { startRecording(st); setState(st.rec ? 'Connected · 🔴 Recording' : 'Connected'); liveActions(st); }
       else if (cs === 'connecting') setState('Connecting…');
       else if (cs === 'failed') { setState('Call failed (network).'); setActions([btn('Close', '#475569', function () { teardown(true); hideUI(); })]); }
       else if (cs === 'disconnected' || cs === 'closed') { if (!st.ended) { setState('Call ended'); setActions([btn('Close', '#475569', function () { teardown(false); hideUI(); })]); } }

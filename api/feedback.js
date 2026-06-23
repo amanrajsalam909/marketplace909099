@@ -10,6 +10,11 @@ const { uploadBinaryFile } = require('../lib/drive');
 const crypto = require('crypto');
 
 const RECEIPT_MAX_BYTES = 4 * 1024 * 1024;   // raw file cap (stays under Vercel's body limit)
+// Call recording raw cap. Base64 inflates ~33%, and the POST body must stay
+// under Vercel's ~4.5MB limit — so cap raw audio at 3.2MB. At 24kbps mono opus
+// that's ~18 min, plenty for a pickup-coordination call.
+const CALL_REC_MAX_BYTES = 3.2 * 1024 * 1024;
+const CALL_REC_TYPES = ['audio/webm', 'audio/ogg', 'audio/mp4'];
 const RECEIPT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'];
 
 // QC photos live on Cloudinary for the life of the case and stay there (no
@@ -502,6 +507,32 @@ module.exports = async (req, res) => {
         const who = await authCallRoom(req);
         if (!who) return res.status(403).json({ error: 'Not allowed on this call.' });
         return res.json({ iceServers: await iceServers() });
+      }
+      // Upload a finished call recording (security feature). The caller's browser
+      // records the mixed local+remote audio and POSTs it here base64-encoded at
+      // hang-up. Stored PRIVATE in Google Drive; indexed in call_recordings with a
+      // 1-year expiry (purged by lib/cleanup.js). Both parties consented up front.
+      if (action === 'call-recording') {
+        const who = await authCallRoom(req);
+        if (!who) return res.status(403).json({ error: 'Not allowed on this call.' });
+        const b64 = String(req.body.audio || '');
+        const buf = b64 ? Buffer.from(b64, 'base64') : Buffer.alloc(0);
+        if (!buf.length) return res.status(400).json({ error: 'No audio.' });
+        if (buf.length > CALL_REC_MAX_BYTES) return res.status(413).json({ error: 'Recording too large.' });
+        const mime = CALL_REC_TYPES.includes(req.body.mime) ? req.body.mime : 'audio/webm';
+        const ext = mime === 'audio/ogg' ? 'ogg' : mime === 'audio/mp4' ? 'm4a' : 'webm';
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `call-${String(req.body.room).replace(/[^A-Za-z0-9_-]/g, '')}-${stamp}.${ext}`;
+        const uploaded = await uploadBinaryFile(filename, mime, buf);   // private (no shareAnyone)
+        await supabase.from('call_recordings').insert({
+          room: req.body.room,
+          drive_file_id: uploaded.id,
+          web_view_link: uploaded.webViewLink || null,
+          recorded_by: who.role,
+          duration_secs: Math.max(0, Math.round(Number(req.body.duration) || 0)),
+          bytes: buf.length
+        });
+        return res.json({ success: true });
       }
 
       // ----- Return pickup partner portal (return-partner.html) -----
