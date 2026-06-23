@@ -94,7 +94,7 @@ module.exports = async (req, res) => {
 
         let query = supabase
           .from('products')
-          .select('id, name, category, description, price, stock, image_url, vendor_id, active, product_no, spec_template_id, specs, product_variants(specs, stock)')
+          .select('id, name, category, description, price, mrp, stock, image_url, vendor_id, active, product_no, spec_template_id, specs, product_variants(specs, stock)')
           .eq('active', true);
 
         if (vendorId) {

@@ -38,6 +38,8 @@ module.exports = async (req, res) => {
         category: product.category || '',
         description: product.description || '',
         price: parseFloat(product.price) || 0,
+        mrp: (product.mrp !== undefined && product.mrp !== null && product.mrp !== '')
+          ? (parseFloat(product.mrp) || null) : null,
         stock: Math.max(0, Math.trunc(Number(product.stock)) || 0),
         image_url: product.imageUrl || product.image_url || '',
         active: product.active !== false,

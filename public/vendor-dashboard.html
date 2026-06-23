@@ -383,6 +383,7 @@
             <div><label for="pName">Name</label><input id="pName" type="text" required></div>
             <div><label for="pCategory">Category</label><input id="pCategory" type="text" placeholder="e.g. Main Course" required></div>
             <div><label for="pPrice">Price (₹)</label><input id="pPrice" type="number" min="1" step="0.01" required></div>
+            <div><label for="pMrp">MRP (₹, optional)</label><input id="pMrp" type="number" min="0" step="0.01" placeholder="strike-through price"></div>
             <div><label for="pStock">Stock (units available)</label><input id="pStock" type="number" min="0" step="1" value="0" required></div>
             <div>
               <label for="pNo">Product No.</label>
@@ -1156,6 +1157,7 @@
       document.getElementById('pName').value = product ? product.name : '';
       document.getElementById('pCategory').value = product ? (product.category || '') : '';
       document.getElementById('pPrice').value = product ? product.price : '';
+      document.getElementById('pMrp').value = product && product.mrp != null ? product.mrp : '';
       document.getElementById('pStock').value = product ? (product.stock ?? 0) : 0;
       document.getElementById('pImage').value = product ? (product.image_url || '') : '';
       document.getElementById('pDesc').value = product ? (product.description || '') : '';
@@ -1191,6 +1193,7 @@
         category: document.getElementById('pCategory').value.trim(),
         description: document.getElementById('pDesc').value.trim(),
         price: parseFloat(document.getElementById('pPrice').value),
+        mrp: document.getElementById('pMrp').value.trim(),
         stock: parseInt(document.getElementById('pStock').value, 10) || 0,
         image_url: document.getElementById('pImage').value.trim(),
         product_no: document.getElementById('pNo').value.trim(),
