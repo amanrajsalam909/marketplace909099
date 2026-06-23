@@ -284,6 +284,7 @@
         <button class="tab" data-tab="exchanges">Exchanges</button>
         <button class="tab" data-tab="products">Products</button>
         <button class="tab" data-tab="spectemplates">Specifications</button>
+        <button class="tab" data-tab="recordings">Call recordings</button>
         <button class="tab" data-tab="settings">Settings</button>
       </div>
       <div class="export-wrap" id="exportWrap">
@@ -475,6 +476,15 @@
         <h3>🔁 Exchanges</h3>
         <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">Read-only. Fashion-only swaps are handled by the <b>vendor</b> (re-prepares &amp; dispatches) and the <b>pickup partner</b> (swaps at the door). This is just the record — Exchange ID and where it is, up to <b>Exchanged</b>.</p>
         <div id="exchangesList"><div class="state">Loading…</div></div>
+      </div>
+    </section>
+
+    <!-- CALL RECORDINGS (security) -->
+    <section class="panel" id="panel-recordings">
+      <div class="card">
+        <h3>🎙️ Call recordings</h3>
+        <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">In-app voice calls between customers and delivery / pickup partners, recorded for safety with both parties' consent. Stored privately and <b>auto-deleted after 1 year</b>. Access only to investigate a safety, fraud or dispute issue.</p>
+        <div id="recordingsList"><div class="state">Loading…</div></div>
       </div>
     </section>
 
@@ -1581,6 +1591,53 @@
       }
     }
 
+    /* ---------- Call recordings (security) ---------- */
+    const fmtSecs = s => { s = Math.max(0, Math.round(s || 0)); const m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0'); };
+    const fmtKB = b => b ? (b < 1048576 ? Math.round(b / 1024) + ' KB' : (b / 1048576).toFixed(1) + ' MB') : '';
+
+    async function loadRecordings() {
+      const el = document.getElementById('recordingsList');
+      try {
+        const list = await api('/api/feedback?callRecordings=1');
+        if (!list.length) { el.innerHTML = '<div class="state">No call recordings yet.</div>'; return; }
+        el.innerHTML = list.map(r => {
+          const who = r.recorded_by === 'partner' ? 'Partner ➜ Customer' : r.recorded_by === 'customer' ? 'Customer ➜ Partner' : '';
+          const expires = r.expires_at ? new Date(r.expires_at).toLocaleDateString('en-IN', { dateStyle: 'medium' }) : '';
+          return `
+          <div class="list-row" style="align-items:flex-start">
+            <div class="row-info">
+              <div class="row-title">📞 Order ${esc(r.room)}${r.customer_name ? ' · ' + esc(r.customer_name) : ''}</div>
+              <div class="row-sub">${r.shop_name ? esc(r.shop_name) + ' · ' : ''}${who ? esc(who) + ' · ' : ''}${new Date(r.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</div>
+              <div class="row-sub" style="margin-top:2px">⏱ ${fmtSecs(r.duration_secs)}${r.bytes ? ' · ' + fmtKB(r.bytes) : ''} · 🗑 auto-deletes ${esc(expires)}</div>
+              <div class="rec-player" data-player="${r.id}" style="margin-top:8px"></div>
+            </div>
+            <button class="btn btn-outline btn-sm" data-play="${r.id}">▶ Play</button>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        el.innerHTML = `<div class="state">${esc(e.message)}</div>`;
+      }
+    }
+
+    document.getElementById('recordingsList').addEventListener('click', async e => {
+      const btn = e.target.closest('[data-play]');
+      if (!btn) return;
+      const id = btn.dataset.play;
+      const slot = document.querySelector(`[data-player="${id}"]`);
+      btn.disabled = true; btn.textContent = 'Loading…';
+      try {
+        const res = await fetch(`/api/feedback?callAudio=${id}`, { headers: { Authorization: 'Bearer ' + token } });
+        if (res.status === 401) { authFail(); return; }
+        if (!res.ok) { let m = 'Could not load audio'; try { m = (await res.json()).error || m; } catch (_) {} throw new Error(m); }
+        const url = URL.createObjectURL(await res.blob());
+        slot.innerHTML = `<audio controls autoplay src="${url}" style="width:100%;max-width:360px"></audio>`;
+        btn.remove();
+      } catch (err) {
+        toast(err.message);
+        btn.disabled = false; btn.textContent = '▶ Play';
+      }
+    });
+
     // (Returns list is read-only now — vendor-driven logistics + Refunds tab.
     //  The old approve/assign/finalize handler was removed with that change.)
 
@@ -2176,6 +2233,7 @@
         if (tab.dataset.tab === 'returns') loadReturns();
         if (tab.dataset.tab === 'refunds') loadRefunds();
         if (tab.dataset.tab === 'exchanges') loadExchanges();
+        if (tab.dataset.tab === 'recordings') loadRecordings();
         if (tab.dataset.tab === 'settings') loadDeliveryPartners();
         if (tab.dataset.tab === 'products') loadProducts();
         if (tab.dataset.tab === 'spectemplates') loadSpecTemplates();

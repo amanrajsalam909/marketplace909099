@@ -6,7 +6,7 @@ const { findSession, getToken, newSessionToken, hashToken } = require('../lib/se
 const { hashPassword, verifyPassword } = require('../lib/password');
 const { checkBlocked, recordFailure, clearFailures } = require('../lib/throttle');
 const cloudinary = require('../lib/cloudinary');
-const { uploadBinaryFile } = require('../lib/drive');
+const { uploadBinaryFile, downloadFile } = require('../lib/drive');
 const crypto = require('crypto');
 
 const RECEIPT_MAX_BYTES = 4 * 1024 * 1024;   // raw file cap (stays under Vercel's body limit)
@@ -283,6 +283,45 @@ module.exports = async (req, res) => {
           rows.forEach(r => { r.photos = byOrder[r.order_id] || []; });
         }
         return res.json(rows);
+      }
+      // Admin: list call recordings (newest first), enriched with the order's
+      // customer + shop so the row is readable. Audio itself is streamed separately.
+      if (req.query.callRecordings) {
+        const { data } = await supabase
+          .from('call_recordings')
+          .select('id, room, recorded_by, duration_secs, bytes, created_at, expires_at')
+          .order('created_at', { ascending: false }).limit(300);
+        const rows = data || [];
+        const ids = [...new Set(rows.map(r => r.room))];
+        if (ids.length) {
+          const { data: orders } = await supabase
+            .from('orders').select('order_id, customer_name, vendor_id, vendors(name)').in('order_id', ids);
+          const byId = {};
+          (orders || []).forEach(o => { byId[o.order_id] = o; });
+          rows.forEach(r => {
+            const o = byId[r.room];
+            r.customer_name = o ? o.customer_name : null;
+            r.shop_name = o && o.vendors ? o.vendors.name : null;
+          });
+        }
+        return res.json(rows);
+      }
+      // Admin: stream a single recording's audio from private Drive through our
+      // own authenticated endpoint (the Drive file is not public). The admin page
+      // fetches this with its Bearer token and plays it as a blob.
+      if (req.query.callAudio) {
+        const { data: rec } = await supabase
+          .from('call_recordings').select('drive_file_id').eq('id', req.query.callAudio).maybeSingle();
+        if (!rec || !rec.drive_file_id) return res.status(404).json({ error: 'Recording not found.' });
+        try {
+          const { buffer, contentType } = await downloadFile(rec.drive_file_id);
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Content-Length', buffer.length);
+          res.setHeader('Cache-Control', 'private, max-age=300');
+          return res.status(200).send(buffer);
+        } catch (e) {
+          return res.status(502).json({ error: 'Could not load audio: ' + e.message });
+        }
       }
       // Admin: the roster of pickup partners (never expose password_hash).
       if (req.query.partners) {
