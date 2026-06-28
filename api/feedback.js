@@ -168,7 +168,7 @@ module.exports = async (req, res) => {
         if (!cs) return res.status(401).json({ error: 'Not logged in.' });
         const { data } = await supabase
           .from('complaints')
-          .select('order_id, subject, description, status, resolution, resolved_at, created_at')
+          .select('order_id, product_name, subject, description, status, resolution, resolved_at, created_at')
           .eq('phone', cs.phone)
           .order('created_at', { ascending: false });
         return res.json(data || []);
@@ -394,12 +394,24 @@ module.exports = async (req, res) => {
       }
 
       if (action === 'submit-complaint') {
-        const { orderId, phone, subject, description } = req.body;
+        const { orderId, phone, subject, description, productId } = req.body;
         if (!subject || !String(subject).trim() || !description || !String(description).trim()) {
           return res.status(400).json({ error: 'Please fill in the subject and description.' });
         }
         const ord = await ownOrder(orderId, phone);
         if (!ord) return res.status(404).json({ error: 'Order not found.' });
+
+        // Optional: scope the complaint to ONE item in the order. The product
+        // must actually be in this order; NULL = a whole-order complaint.
+        let product_id = null, product_name = null;
+        if (productId) {
+          const { data: oi } = await supabase
+            .from('order_items').select('product_id, product_name')
+            .eq('order_id', orderId).eq('product_id', productId).limit(1);
+          if (!oi || !oi.length) return res.status(400).json({ error: 'That item is not part of this order.' });
+          product_id = oi[0].product_id;
+          product_name = oi[0].product_name;
+        }
 
         // Anti-spam: max 3 complaints per order
         const { count } = await supabase
@@ -409,6 +421,8 @@ module.exports = async (req, res) => {
         const complaint = {
           order_id: orderId,
           vendor_id: ord.vendor_id,
+          product_id,
+          product_name,
           customer_name: ord.customer_name,
           email: ord.customer_email,
           phone: ord.customer_phone,

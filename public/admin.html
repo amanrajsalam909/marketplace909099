@@ -1431,7 +1431,7 @@
         el.innerHTML = list.map(c => `
           <div class="list-row" style="align-items:flex-start">
             <div class="row-info">
-              <div class="row-title">${esc(c.subject)}</div>
+              <div class="row-title">${esc(c.subject)}${c.product_name ? ` <span style="font-weight:500;color:var(--muted)">— 📦 ${esc(c.product_name)}</span>` : ''}</div>
               <div class="row-sub">${esc(c.order_id)} · ${esc((c.vendors || {}).name || '')} · ${esc(c.customer_name)} (${esc(c.email)}) · ${new Date(c.created_at).toLocaleDateString('en-IN')}</div>
               <div style="font-size:13px;color:var(--text);margin-top:6px">${esc(c.description)}</div>
             </div>
@@ -2276,7 +2276,7 @@
 
         case 'complaints':
           return { filename: 'complaints', sheets: [{ name: 'Complaints', rows: lastComplaints.map(c => ({
-            'Subject': c.subject, 'Order ID': c.order_id, 'Shop': (c.vendors || {}).name || '',
+            'Subject': c.subject, 'Order ID': c.order_id, 'Item': c.product_name || '', 'Shop': (c.vendors || {}).name || '',
             'Customer': c.customer_name, 'Email': c.email, 'Phone': c.phone || '',
             'Description': c.description, 'Status': c.status, 'Created': fmtDateTime(c.created_at)
           })) }] };

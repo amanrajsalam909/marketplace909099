@@ -403,6 +403,7 @@
             <span style="font-size:12px;font-weight:700;color:var(--dark)">🗣️ ${esc(c.subject)}</span>
             <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;${badge}">${esc(c.status)}</span>
           </div>
+          ${c.product_name ? `<div style="font-size:11px;color:var(--muted);margin-top:3px">📦 ${esc(c.product_name)}</div>` : ''}
           ${c.resolution
             ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px">
                  <div style="font-size:11px;font-weight:700;color:var(--green)">✅ OUR RESOLUTION</div>
@@ -655,10 +656,20 @@
     }
 
     function openComplaint(orderId) {
+      const ord = ordersById[orderId];
+      const items = ord && Array.isArray(ord.items_json) ? ord.items_json : [];
+      // Item picker: complain about ONE item (by its product) or the whole order.
+      const itemPicker = items.length ? `
+        <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Which item?</label>
+        <select id="compItem" style="${FBFIELD}">
+          <option value="">Whole order / not item-specific</option>
+          ${items.map(it => `<option value="${esc(it.id)}">${esc(it.name)}${it.quantity ? ` × ${it.quantity}` : ''}</option>`).join('')}
+        </select>` : '';
       openFbModal('Report a problem', `
         <div id="fbErrBox" style="${FBERR}"></div>
         <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Order <b>${esc(orderId)}</b></p>
-        <input id="compSubject" type="text" maxlength="150" placeholder="Subject (e.g. Item missing)" style="${FBFIELD}">
+        ${itemPicker}
+        <input id="compSubject" type="text" maxlength="150" placeholder="Subject (e.g. Item not received)" style="${FBFIELD}">
         <textarea id="compDesc" rows="4" placeholder="Describe what went wrong" style="${FBFIELD}"></textarea>
         <button id="compSubmit" style="${FBBTN}">Submit complaint</button>`);
       document.getElementById('compSubmit').addEventListener('click', () => submitComplaint(orderId));
@@ -666,12 +677,14 @@
     async function submitComplaint(orderId) {
       const subject = document.getElementById('compSubject').value.trim();
       const description = document.getElementById('compDesc').value.trim();
+      const itemSel = document.getElementById('compItem');
+      const productId = itemSel ? itemSel.value : '';
       if (!subject || !description) return fbErr('Please fill in the subject and description.');
       const btn = document.getElementById('compSubmit'); btn.disabled = true; btn.textContent = 'Submitting…';
       try {
         const res = await fetch('/api/feedback', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'submit-complaint', orderId, phone: cust.phone, subject, description })
+          body: JSON.stringify({ action: 'submit-complaint', orderId, phone: cust.phone, subject, description, productId })
         });
         const d = await res.json();
         if (!d.success) throw new Error(d.error || 'Could not submit the complaint.');
