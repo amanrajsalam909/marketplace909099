@@ -395,8 +395,36 @@
       'In Progress': 'background:#dbeafe;color:#1e40af',
       'Resolved': 'background:#d1fae5;color:#065f46'
     };
+    // One chat bubble in a complaint thread. mine = the customer (right side).
+    function compBubble(from, text, at) {
+      const mine = from === 'customer';
+      const when = at ? new Date(at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+      return `
+        <div style="display:flex;justify-content:${mine ? 'flex-end' : 'flex-start'};margin:6px 0">
+          <div style="max-width:80%;background:${mine ? 'var(--primary)' : '#f1f5f9'};color:${mine ? '#fff' : 'var(--text)'};padding:7px 11px;border-radius:12px;font-size:13px;white-space:pre-wrap;word-break:break-word">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;opacity:.75;margin-bottom:2px">${mine ? 'You' : 'Support'}</div>
+            ${esc(text)}
+            ${when ? `<div style="font-size:9px;opacity:.7;margin-top:3px">${when}</div>` : ''}
+          </div>
+        </div>`;
+    }
     function complaintBlock(c) {
       const badge = COMP_BADGE[c.status] || COMP_BADGE['Open'];
+      const msgs = Array.isArray(c.messages) ? c.messages : [];
+      // The opening complaint is the first customer message; replies follow.
+      const thread = [compBubble('customer', c.subject + (c.description ? '\n' + c.description : ''), c.created_at)]
+        .concat(msgs.map(m => compBubble(m.from, m.text, m.at)))
+        .concat(c.resolution ? [`
+          <div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px">
+            <div style="font-size:11px;font-weight:700;color:var(--green)">✅ OUR RESOLUTION</div>
+            <div style="font-size:13px;color:var(--text);white-space:pre-wrap;margin-top:2px">${esc(c.resolution)}</div>
+          </div>`] : [])
+        .join('');
+      const replyBox = c.status === 'Resolved' ? '' : `
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <textarea data-comp-msg="${esc(c.id)}" rows="1" placeholder="Reply to support…" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box"></textarea>
+          <button data-comp-send="${esc(c.id)}" style="padding:8px 14px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer">Send</button>
+        </div>`;
       return `
         <div style="margin:10px 0;border:1px solid var(--border);border-radius:10px;padding:10px 12px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
@@ -404,12 +432,8 @@
             <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 9px;border-radius:999px;${badge}">${esc(c.status)}</span>
           </div>
           ${c.product_name ? `<div style="font-size:11px;color:var(--muted);margin-top:3px">📦 ${esc(c.product_name)}</div>` : ''}
-          ${c.resolution
-            ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px">
-                 <div style="font-size:11px;font-weight:700;color:var(--green)">✅ OUR RESOLUTION</div>
-                 <div style="font-size:13px;color:var(--text);white-space:pre-wrap;margin-top:2px">${esc(c.resolution)}</div>
-               </div>`
-            : `<div style="font-size:12px;color:var(--muted);margin-top:4px">We're on it — you'll get an update soon.</div>`}
+          <div style="margin-top:8px">${thread}</div>
+          ${replyBox}
         </div>`;
     }
 
@@ -566,6 +590,8 @@
       if (rev) { e.preventDefault(); openReview(rev.dataset.review); return; }
       const comp = e.target.closest('[data-complain]');
       if (comp) { e.preventDefault(); openComplaint(comp.dataset.complain); return; }
+      const csend = e.target.closest('[data-comp-send]');
+      if (csend) { e.preventDefault(); sendComplaintReply(csend.dataset.compSend, csend); return; }
       const retn = e.target.closest('[data-return]');
       if (retn) { e.preventDefault(); openReturn(retn.dataset.return); return; }
       const exch = e.target.closest('[data-exchange]');
@@ -690,6 +716,23 @@
         if (!d.success) throw new Error(d.error || 'Could not submit the complaint.');
         closeFbModal(); toast('Complaint submitted — we\'ll look into it.'); loadOrders();
       } catch (e) { fbErr(e.message); btn.disabled = false; btn.textContent = 'Submit complaint'; }
+    }
+
+    // Customer adds a follow-up message to an open complaint thread.
+    async function sendComplaintReply(complaintId, btn) {
+      const ta = document.querySelector(`textarea[data-comp-msg="${CSS.escape(complaintId)}"]`);
+      const message = ta ? ta.value.trim() : '';
+      if (!message) { if (ta) ta.focus(); return; }
+      btn.disabled = true; btn.textContent = '…';
+      try {
+        const res = await fetch('/api/feedback', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cust.token },
+          body: JSON.stringify({ action: 'complaint-reply', complaintId, message })
+        });
+        const d = await res.json();
+        if (!d.success) throw new Error(d.error || 'Could not send your message.');
+        loadOrders();
+      } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Send'; }
     }
 
     function openReturn(orderId, type = 'return') {
@@ -915,6 +958,15 @@
       }
     }).catch(() => {});
     loadOrders();
+
+    // Keep complaint threads in sync with admin replies. Skip a refresh while the
+    // customer is typing a reply or has a modal open, so we don't clobber input.
+    setInterval(() => {
+      if (document.getElementById('fbModalBg').style.display === 'flex') return;
+      const a = document.activeElement;
+      if (a && (a.matches('[data-comp-msg]') || a.tagName === 'TEXTAREA' || a.tagName === 'INPUT')) return;
+      loadOrders();
+    }, 20000);
 
     /* ---------- Incoming voice calls (WebRTC POC) ---------- */
     function cbSignal(action, body) {

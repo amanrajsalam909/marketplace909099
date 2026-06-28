@@ -1,6 +1,6 @@
 const guard = require('../lib/guard');
 const supabase = require('../lib/supabase');
-const { sendComplaintAlert, sendComplaintResolution, sendReturnUpdate } = require('../lib/email');
+const { sendComplaintAlert, sendComplaintResolution, sendComplaintReply, sendReturnUpdate } = require('../lib/email');
 const { validateCustomerSession } = require('./customer-auth');
 const { findSession, getToken, newSessionToken, hashToken } = require('../lib/sessions');
 const { hashPassword, verifyPassword } = require('../lib/password');
@@ -168,7 +168,7 @@ module.exports = async (req, res) => {
         if (!cs) return res.status(401).json({ error: 'Not logged in.' });
         const { data } = await supabase
           .from('complaints')
-          .select('order_id, product_name, subject, description, status, resolution, resolved_at, created_at')
+          .select('id, order_id, product_name, subject, description, status, resolution, resolved_at, created_at, messages')
           .eq('phone', cs.phone)
           .order('created_at', { ascending: false });
         return res.json(data || []);
@@ -434,6 +434,26 @@ module.exports = async (req, res) => {
         if (error) throw error;
 
         sendComplaintAlert(complaint).catch(() => {});
+        return res.json({ success: true });
+      }
+
+      // Customer posts a follow-up message on their own complaint thread.
+      // Stays open until the admin resolves it — replies are blocked once Resolved.
+      if (action === 'complaint-reply') {
+        const cs = await validateCustomerSession(getToken(req));
+        if (!cs) return res.status(401).json({ error: 'Please sign in again.' });
+        const text = String(req.body.message || '').trim().slice(0, 2000);
+        if (!text) return res.status(400).json({ error: 'Please type a message.' });
+        const { data: c } = await supabase
+          .from('complaints').select('id, phone, status, messages').eq('id', req.body.complaintId).maybeSingle();
+        if (!c) return res.status(404).json({ error: 'Complaint not found.' });
+        const norm = s => String(s || '').replace(/\D/g, '').slice(-10);
+        if (norm(c.phone) !== norm(cs.phone)) return res.status(403).json({ error: 'This is not your complaint.' });
+        if (c.status === 'Resolved') return res.status(400).json({ error: 'This complaint is already resolved.' });
+        const messages = Array.isArray(c.messages) ? c.messages : [];
+        messages.push({ from: 'customer', text, at: new Date().toISOString() });
+        const { error } = await supabase.from('complaints').update({ messages }).eq('id', c.id);
+        if (error) throw error;
         return res.json({ success: true });
       }
 
@@ -858,6 +878,25 @@ module.exports = async (req, res) => {
         const status = ['Open', 'In Progress', 'Resolved'].includes(req.body.status) ? req.body.status : 'Open';
         const { error } = await supabase.from('complaints').update({ status }).eq('id', req.body.complaintId);
         if (error) throw error;
+        return res.json({ success: true });
+      }
+
+      // Admin posts a reply on the complaint thread (an ongoing message, not the
+      // final resolution). Acknowledges the complaint (Open -> In Progress) and
+      // emails the customer so the conversation stays synced on their page.
+      if (action === 'admin-complaint-reply') {
+        const text = String(req.body.message || '').trim().slice(0, 2000);
+        if (!text) return res.status(400).json({ error: 'Please type a reply.' });
+        const { data: c } = await supabase
+          .from('complaints').select('*').eq('id', req.body.complaintId).maybeSingle();
+        if (!c) return res.status(404).json({ error: 'Complaint not found.' });
+        const messages = Array.isArray(c.messages) ? c.messages : [];
+        messages.push({ from: 'admin', text, at: new Date().toISOString() });
+        const upd = { messages };
+        if (c.status === 'Open') upd.status = 'In Progress';
+        const { error } = await supabase.from('complaints').update(upd).eq('id', c.id);
+        if (error) throw error;
+        if (c.email) sendComplaintReply(c.email, c, text).catch(() => {});
         return res.json({ success: true });
       }
 

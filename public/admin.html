@@ -1422,6 +1422,23 @@
       } catch (err) { toast(err.message); }
     });
 
+    // Renders the customer↔admin message thread for one complaint. Admin sits on
+    // the right (blue); the customer on the left (grey).
+    function compThreadHtml(c) {
+      const msgs = Array.isArray(c.messages) ? c.messages : [];
+      if (!msgs.length) return '';
+      const bubble = m => {
+        const mine = m.from === 'admin';
+        const when = m.at ? new Date(m.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+        return `<div style="display:flex;justify-content:${mine ? 'flex-end' : 'flex-start'};margin:5px 0">
+            <div style="max-width:75%;background:${mine ? 'var(--primary,#2563eb)' : '#f1f5f9'};color:${mine ? '#fff' : 'var(--text)'};padding:7px 11px;border-radius:12px;font-size:13px;white-space:pre-wrap;word-break:break-word">
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;opacity:.75;margin-bottom:2px">${mine ? 'You' : esc(c.customer_name || 'Customer')}</div>
+              ${esc(m.text)}${when ? `<div style="font-size:9px;opacity:.7;margin-top:3px">${when}</div>` : ''}
+            </div>
+          </div>`;
+      };
+      return `<div style="margin:4px 0 6px">${msgs.map(bubble).join('')}</div>`;
+    }
     async function loadComplaints() {
       try {
         const list = await api(`/api/feedback?complaints=1`);
@@ -1439,9 +1456,16 @@
               ${['Open', 'In Progress', 'Resolved'].map(s => `<option ${c.status === s ? 'selected' : ''}>${s}</option>`).join('')}
             </select>
             <div style="flex-basis:100%;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px">
-              ${c.resolution ? `<div style="font-size:12px;color:var(--green);font-weight:600">✅ Solution emailed to customer${c.resolved_at ? ' · ' + new Date(c.resolved_at).toLocaleDateString('en-IN') : ''}</div>
+              ${compThreadHtml(c)}
+              ${c.status === 'Resolved' ? '' : `
+                <label style="margin:10px 0 6px">Reply to customer (keeps the complaint open)</label>
+                <div style="display:flex;gap:8px;align-items:flex-start">
+                  <textarea data-cmsg="${c.id}" rows="2" placeholder="Type a message to the customer…" style="flex:1"></textarea>
+                  <button class="btn btn-outline btn-sm" data-comp-reply="${c.id}" style="white-space:nowrap">💬 Send reply</button>
+                </div>`}
+              ${c.resolution ? `<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:10px">✅ Solution emailed to customer${c.resolved_at ? ' · ' + new Date(c.resolved_at).toLocaleDateString('en-IN') : ''}</div>
                  <div style="font-size:13px;color:var(--text);white-space:pre-wrap;margin:4px 0 10px">${esc(c.resolution)}</div>` : ''}
-              <label style="margin-bottom:6px">Solution / reply to customer</label>
+              <label style="margin:10px 0 6px">Final solution (marks the complaint Resolved)</label>
               <textarea data-res="${c.id}" rows="2" placeholder="Explain what you did to fix it — this is emailed to the customer">${esc(c.resolution || '')}</textarea>
               <button class="btn btn-primary btn-sm" data-resolve="${c.id}" style="margin-top:8px">✉️ Send solution &amp; resolve</button>
             </div>
@@ -1461,6 +1485,22 @@
     });
 
     document.getElementById('complaintsList').addEventListener('click', async e => {
+      const reply = e.target.closest('[data-comp-reply]');
+      if (reply) {
+        const ta = document.querySelector(`textarea[data-cmsg="${reply.dataset.compReply}"]`);
+        const message = (ta && ta.value || '').trim();
+        if (!message) return toast('Type a message first.');
+        reply.disabled = true; reply.textContent = 'Sending…';
+        try {
+          await fbPost({ action: 'admin-complaint-reply', complaintId: reply.dataset.compReply, message });
+          toast('Reply sent to customer');
+          loadComplaints();
+        } catch (err) {
+          toast(err.message);
+          reply.disabled = false; reply.innerHTML = '💬 Send reply';
+        }
+        return;
+      }
       const btn = e.target.closest('[data-resolve]');
       if (!btn) return;
       const ta = document.querySelector(`textarea[data-res="${btn.dataset.resolve}"]`);
@@ -2368,6 +2408,16 @@
         updateExportLabel();
       });
     });
+
+    // Keep the complaints thread synced with customer replies while that tab is
+    // open. Skip when the admin is typing a reply/solution so input isn't lost.
+    setInterval(() => {
+      const panel = document.getElementById('panel-complaints');
+      if (!panel || !panel.classList.contains('active')) return;
+      const a = document.activeElement;
+      if (a && (a.matches('[data-cmsg]') || a.matches('[data-res]'))) return;
+      loadComplaints();
+    }, 20000);
 
     updateExportLabel();
     loadStats();
